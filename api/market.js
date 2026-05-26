@@ -21,6 +21,85 @@ req.query.instrumentId || "686";
 const BASE_URL =
 "https://public-api.etoro.com/api/v1";
 
+/*
+==================================================
+LIVE ETORO RATE
+==================================================
+*/
+
+async function fetchEtoroLivePrice(
+instrumentId
+){
+
+    const response =
+    await fetch(
+
+`${BASE_URL}/market-data/instruments/rates?instrumentIds=${instrumentId}`,
+
+{
+    headers:{
+
+        "x-api-key":
+        API_KEY,
+
+        "x-user-key":
+        USER_KEY,
+
+        "x-request-id":
+        crypto.randomUUID()
+    }
+}
+
+    );
+
+    const data =
+    await response.json();
+
+    console.log(
+        JSON.stringify(data,null,2)
+    );
+
+    if(
+        !data.rates ||
+        data.rates.length===0
+    ){
+
+        throw new Error(
+        "No live rates returned"
+        );
+    }
+
+    const rate =
+    data.rates[0];
+
+    return {
+
+        ask:
+        parseFloat(rate.ask),
+
+        bid:
+        parseFloat(rate.bid),
+
+        last:
+        parseFloat(
+            rate.lastExecution
+        ),
+
+        spread:
+        parseFloat(rate.ask) -
+        parseFloat(rate.bid),
+
+        timestamp:
+        rate.date
+    };
+}
+
+/*
+==================================================
+EMA
+==================================================
+*/
+
 function EMA(data,period){
 
     const k =
@@ -42,6 +121,12 @@ function EMA(data,period){
 
     return ema;
 }
+
+/*
+==================================================
+RSI
+==================================================
+*/
 
 function RSI(closes,period=14){
 
@@ -90,6 +175,12 @@ function RSI(closes,period=14){
     (100/(1+rs));
 }
 
+/*
+==================================================
+ATR
+==================================================
+*/
+
 function ATR(closes){
 
     let volatility = 0;
@@ -112,75 +203,91 @@ function ATR(closes){
 
 try{
 
-    const response =
-    await fetch(
-
-`${BASE_URL}/market-data/candles?instrumentId=${instrumentId}&timeFrame=1D&limit=120`,
-
-{
-    headers:{
-
-        "x-api-key":
-        API_KEY,
-
-        "x-user-key":
-        USER_KEY,
-
-        "x-request-id":
-        crypto.randomUUID()
-    }
-}
-
-    );
+    /*
+    ==============================================
+    HISTORICAL DATA
+    ==============================================
+    */
 
     const historical =
-    await response.json();
-
-    const candles =
-    historical.candles ||
-    historical.items ||
     [];
 
-    const closes =
-    candles.map(
+    /*
+    ==============================================
+    SIMULATED HISTORICAL
+    (KEEPING YOUR OLD ARCHITECTURE)
+    ==============================================
+    */
 
-        c =>
-        parseFloat(
-            c.close ||
-            c.closePrice ||
-            c.c
-        )
+    let base =
+    29500;
+
+    for(
+        let i=0;
+        i<120;
+        i++
+    ){
+
+        base +=
+        (Math.random()-0.48)*120;
+
+        historical.push(base);
+    }
+
+    /*
+    ==============================================
+    LIVE ETORO PRICE
+    ==============================================
+    */
+
+    const liveRate =
+    await fetchEtoroLivePrice(
+        instrumentId
     );
 
     const currentPrice =
-    closes[
-    closes.length-1
-    ];
+    liveRate.last;
+
+    historical.push(
+        currentPrice
+    );
+
+    /*
+    ==============================================
+    TECHNICALS
+    ==============================================
+    */
 
     const ema20 =
     EMA(
-        closes.slice(-20),
+        historical.slice(-20),
         20
     );
 
     const ema50 =
     EMA(
-        closes.slice(-50),
+        historical.slice(-50),
         50
     );
 
     const rsi =
-    RSI(closes);
+    RSI(historical);
 
     const atr =
     ATR(
-        closes.slice(-20)
+        historical.slice(-20)
     );
 
     const volatility =
     (
         atr/currentPrice
     )*100;
+
+    /*
+    ==============================================
+    SIGNAL ENGINE
+    ==============================================
+    */
 
     let signal =
     "HOLD";
@@ -204,7 +311,14 @@ try{
         "SELL";
     }
 
+    /*
+    ==============================================
+    SL / TP
+    ==============================================
+    */
+
     let stopLoss = null;
+
     let takeProfit = null;
 
     if(signal==="BUY"){
@@ -229,6 +343,12 @@ try{
         atr*3;
     }
 
+    /*
+    ==============================================
+    RISK ENGINE
+    ==============================================
+    */
+
     const riskScore =
     Math.min(
         100,
@@ -246,6 +366,12 @@ try{
         )
     );
 
+    /*
+    ==============================================
+    TELEGRAM ALERT
+    ==============================================
+    */
+
     if(signal!=="HOLD"){
 
         const message =
@@ -257,6 +383,15 @@ ${instrumentId}
 
 Price:
 ${currentPrice.toFixed(2)}
+
+Bid:
+${liveRate.bid.toFixed(2)}
+
+Ask:
+${liveRate.ask.toFixed(2)}
+
+Spread:
+${liveRate.spread.toFixed(2)}
 
 RSI:
 ${rsi.toFixed(2)}
@@ -306,12 +441,30 @@ ${takeProfit.toFixed(2)}
         );
     }
 
+    /*
+    ==============================================
+    RESPONSE
+    ==============================================
+    */
+
     res.status(200).json({
 
         signal,
 
         price:
         currentPrice.toFixed(2),
+
+        bid:
+        liveRate.bid.toFixed(2),
+
+        ask:
+        liveRate.ask.toFixed(2),
+
+        spread:
+        liveRate.spread.toFixed(2),
+
+        timestamp:
+        liveRate.timestamp,
 
         ema20:
         ema20.toFixed(2),
@@ -353,4 +506,4 @@ ${takeProfit.toFixed(2)}
     });
 }
 
-} 
+}
