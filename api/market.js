@@ -526,16 +526,7 @@ ONLY ENTER ONCE
 ========================================
 */
 
-if(!state.holding){
 
-state.holding = true;
-
-state.entryPrice =
-currentPrice;
-
-state.leverage =
-leverage;
-}
 }
 
 if(
@@ -557,10 +548,7 @@ ONLY EXIT IF HOLDING
 ========================================
 */
 
-if(state.holding){
 
-state.holding = false;
-}
 }
 
 /*
