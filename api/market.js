@@ -108,6 +108,16 @@ SYNC FRONTEND STATE
 ==================================================
 */
 
+/*
+========================================
+OPTIONAL MANUAL POSITION UPDATE
+========================================
+*/
+
+if(
+req.query.updatePosition==="true"
+){
+
 if(holding==="yes"){
 
 state.holding = true;
@@ -125,6 +135,7 @@ amountInvested;
 if(holding==="no"){
 
 state.holding = false;
+}
 }
 
 /*
