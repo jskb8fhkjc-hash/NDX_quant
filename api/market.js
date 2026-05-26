@@ -1,4 +1,14 @@
-let lastSignal = "NONE";
+import { Redis } from "@upstash/redis";
+
+const redis = new Redis({
+
+url:
+process.env.UPSTASH_REDIS_REST_KV_REST_API_URL,
+
+token:
+process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN
+
+});
 
 export default async function handler(
 req,
@@ -6,6 +16,12 @@ res
 ){
 
 try{
+
+/*
+==================================================
+ENV
+==================================================
+*/
 
 const API_KEY =
 process.env.ETORO_API_KEY;
@@ -19,6 +35,12 @@ process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID =
 process.env.TELEGRAM_CHAT_ID;
 
+/*
+==================================================
+INPUTS
+==================================================
+*/
+
 const instrumentId =
 req.query.instrumentId || "686";
 
@@ -26,19 +48,84 @@ const holding =
 req.query.holding || "no";
 
 const leverage =
-parseFloat(req.query.leverage || 1);
+parseFloat(
+req.query.leverage || 1
+);
 
 const entryPrice =
-parseFloat(req.query.entryPrice || 0);
+parseFloat(
+req.query.entryPrice || 0
+);
 
 const existingSL =
-parseFloat(req.query.existingSL || 0);
+parseFloat(
+req.query.existingSL || 0
+);
 
 const existingTP =
-parseFloat(req.query.existingTP || 0);
+parseFloat(
+req.query.existingTP || 0
+);
+
+const amountInvested =
+parseFloat(
+req.query.amountInvested || 1000
+);
 
 const BASE_URL =
 "https://public-api.etoro.com/api/v1";
+
+/*
+==================================================
+REDIS STATE
+==================================================
+*/
+
+let state =
+await redis.get(
+`position-${instrumentId}`
+);
+
+if(!state){
+
+state = {
+
+holding:false,
+
+entryPrice:0,
+
+leverage:1,
+
+lastSignal:"NONE",
+
+amountInvested:1000
+};
+}
+
+/*
+==================================================
+SYNC FRONTEND STATE
+==================================================
+*/
+
+if(holding==="yes"){
+
+state.holding = true;
+
+state.entryPrice =
+entryPrice;
+
+state.leverage =
+leverage;
+
+state.amountInvested =
+amountInvested;
+}
+
+if(holding==="no"){
+
+state.holding = false;
+}
 
 /*
 ==================================================
@@ -60,7 +147,6 @@ headers:{
 "x-request-id":crypto.randomUUID()
 }
 }
-
 );
 
 const data =
@@ -86,7 +172,7 @@ return data.rates[0];
 
 /*
 ==================================================
-FETCH REAL HISTORICAL CANDLES
+FETCH CANDLES
 ==================================================
 */
 
@@ -104,7 +190,6 @@ headers:{
 "x-request-id":crypto.randomUUID()
 }
 }
-
 );
 
 const data =
@@ -167,7 +252,7 @@ return ema;
 
 /*
 ==================================================
-RSI
+TRUE WILDER RSI
 ==================================================
 */
 
@@ -176,19 +261,22 @@ function RSI(closes,period=14){
 let gains = 0;
 let losses = 0;
 
+/*
+========================================
+INITIAL RSI
+========================================
+*/
+
 for(
-let i=
-closes.length-period;
-
-i<closes.length-1;
-
+let i=1;
+i<=period;
 i++
 ){
 
 const diff =
-closes[i+1]-closes[i];
+closes[i]-closes[i-1];
 
-if(diff>0){
+if(diff>=0){
 
 gains += diff;
 
@@ -198,11 +286,45 @@ losses += Math.abs(diff);
 }
 }
 
-const avgGain =
+let avgGain =
 gains/period;
 
-const avgLoss =
+let avgLoss =
 losses/period;
+
+/*
+========================================
+WILDER SMOOTHING
+========================================
+*/
+
+for(
+let i=period+1;
+i<closes.length;
+i++
+){
+
+const diff =
+closes[i]-closes[i-1];
+
+const gain =
+diff>0 ? diff : 0;
+
+const loss =
+diff<0 ? Math.abs(diff) : 0;
+
+avgGain =
+(
+(avgGain*(period-1))
++ gain
+)/period;
+
+avgLoss =
+(
+(avgLoss*(period-1))
++ loss
+)/period;
+}
 
 if(avgLoss===0){
 
@@ -238,7 +360,17 @@ parseFloat(candles[i].high);
 const low =
 parseFloat(candles[i].low);
 
-trs.push(high-low);
+const prevClose =
+parseFloat(candles[i-1].close);
+
+const tr =
+Math.max(
+high-low,
+Math.abs(high-prevClose),
+Math.abs(low-prevClose)
+);
+
+trs.push(tr);
 }
 
 const recent =
@@ -252,7 +384,7 @@ return recent.reduce(
 
 /*
 ==================================================
-MAIN
+FETCH MARKET DATA
 ==================================================
 */
 
@@ -264,7 +396,7 @@ await fetchCandles();
 
 /*
 ==================================================
-SORT CANDLES ASCENDING
+SORT ASCENDING
 ==================================================
 */
 
@@ -286,21 +418,6 @@ BUILD ARRAYS
 const closes =
 candles.map(c =>
 parseFloat(c.close)
-);
-
-const highs =
-candles.map(c =>
-parseFloat(c.high)
-);
-
-const lows =
-candles.map(c =>
-parseFloat(c.low)
-);
-
-const volumes =
-candles.map(c =>
-parseFloat(c.volume || 0)
 );
 
 /*
@@ -338,9 +455,14 @@ parseFloat(
 live.lastExecution
 );
 
-const spread =
-parseFloat(live.ask) -
+const ask =
+parseFloat(live.ask);
+
+const bid =
 parseFloat(live.bid);
+
+const spread =
+ask-bid;
 
 /*
 ==================================================
@@ -386,6 +508,23 @@ rsi<68
 signal = "BUY";
 
 confidence += 30;
+
+/*
+========================================
+ONLY ENTER ONCE
+========================================
+*/
+
+if(!state.holding){
+
+state.holding = true;
+
+state.entryPrice =
+currentPrice;
+
+state.leverage =
+leverage;
+}
 }
 
 if(
@@ -400,6 +539,17 @@ rsi<40
 signal = "SELL";
 
 confidence += 30;
+
+/*
+========================================
+ONLY EXIT IF HOLDING
+========================================
+*/
+
+if(state.holding){
+
+state.holding = false;
+}
 }
 
 /*
@@ -474,34 +624,38 @@ let positionAdvice =
 "NO OPEN POSITION";
 
 if(
-holding==="yes" &&
-entryPrice>0
+state.holding &&
+state.entryPrice>0
 ){
 
-const pnlValue =
+const percentMove =
+
 (
-currentPrice-entryPrice
-)*leverage;
+currentPrice -
+state.entryPrice
+)
+/
+state.entryPrice;
+
+const pnlValue =
+
+amountInvested *
+percentMove *
+state.leverage;
 
 pnl =
 pnlValue.toFixed(2);
 
 exposure =
 (
-currentPrice*leverage
+amountInvested *
+state.leverage
 ).toFixed(2);
 
-if(signal==="BUY"){
-
 positionAdvice =
-"HOLD POSITION";
-}
-
-if(signal==="SELL"){
-
-positionAdvice =
-"CONSIDER EXIT";
-}
+signal==="SELL"
+? "CONSIDER EXIT"
+: "HOLD POSITION";
 
 if(
 existingTP>0 &&
@@ -530,10 +684,12 @@ TELEGRAM ALERTS
 
 let shouldNotify = false;
 
-if(signal!==lastSignal){
+if(
+signal!==state.lastSignal
+){
 
 if(
-holding==="no" &&
+!state.holding &&
 signal==="BUY"
 ){
 
@@ -541,7 +697,7 @@ shouldNotify = true;
 }
 
 if(
-holding==="yes" &&
+state.holding &&
 signal==="SELL"
 ){
 
@@ -567,14 +723,17 @@ ${confidence}%
 RSI:
 ${rsi.toFixed(2)}
 
-Short:
-${shortTrend}
+EMA20:
+${ema20.toFixed(2)}
 
-Mid:
-${midTrend}
+EMA50:
+${ema50.toFixed(2)}
 
-Long:
-${longTrend}
+EMA100:
+${ema100.toFixed(2)}
+
+Spread:
+${spread.toFixed(2)}
 
 Duration:
 ${duration}
@@ -586,10 +745,12 @@ TP:
 ${takeProfit.toFixed(2)}
 
 Leverage:
-${leverage}x
+${state.leverage}x
+
+PnL:
+${pnl}
 `;
 
-const telegramResponse =
 await fetch(
 
 `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
@@ -608,19 +769,29 @@ chat_id:CHAT_ID,
 text:message
 })
 }
-
 );
 
-const telegramData =
-await telegramResponse.json();
+/*
+========================================
+SAVE LAST SIGNAL
+========================================
+*/
 
-console.log(
-"Telegram:",
-telegramData
-);
+state.lastSignal = signal;
 }
 
-lastSignal = signal;
+/*
+==================================================
+SAVE STATE
+==================================================
+*/
+
+await redis.set(
+
+`position-${instrumentId}`,
+
+state
+);
 
 /*
 ==================================================
@@ -634,6 +805,15 @@ signal,
 
 price:
 currentPrice.toFixed(2),
+
+ask:
+ask.toFixed(2),
+
+bid:
+bid.toFixed(2),
+
+spread:
+spread.toFixed(2),
 
 ema20:
 ema20.toFixed(2),
@@ -649,9 +829,6 @@ rsi.toFixed(2),
 
 atr:
 atr.toFixed(2),
-
-spread:
-spread.toFixed(2),
 
 confidence:
 confidence+"%",
@@ -675,6 +852,15 @@ shortTrend,
 midTrend,
 
 longTrend,
+
+holding:
+state.holding,
+
+entryPrice:
+state.entryPrice,
+
+leverage:
+state.leverage,
 
 pnl,
 
