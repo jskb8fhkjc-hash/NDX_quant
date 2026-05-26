@@ -40,6 +40,12 @@ parseFloat(req.query.existingTP || 0);
 const BASE_URL =
 "https://public-api.etoro.com/api/v1";
 
+/*
+==================================================
+FETCH LIVE RATE
+==================================================
+*/
+
 async function fetchRates(){
 
 const response =
@@ -60,15 +66,36 @@ headers:{
 const data =
 await response.json();
 
+console.log(
+"Live Rates:",
+JSON.stringify(data)
+);
+
+if(
+!data.rates ||
+data.rates.length===0
+){
+
+throw new Error(
+"No live rates returned"
+);
+}
+
 return data.rates[0];
 }
+
+/*
+==================================================
+FETCH REAL HISTORICAL CANDLES
+==================================================
+*/
 
 async function fetchCandles(){
 
 const response =
 await fetch(
 
-`${BASE_URL}/market-data/instruments/${instrumentId}/candles?period=OneYear`,
+`${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/OneDay/200`,
 
 {
 headers:{
@@ -83,16 +110,52 @@ headers:{
 const data =
 await response.json();
 
-return data;
+console.log(
+"Candle Data:",
+JSON.stringify(data)
+);
+
+if(
+!data.candles ||
+data.candles.length===0
+){
+
+throw new Error(
+"No candle wrapper returned"
+);
 }
+
+if(
+!data.candles[0].candles
+){
+
+throw new Error(
+"No nested candle array found"
+);
+}
+
+return data.candles[0].candles;
+}
+
+/*
+==================================================
+EMA
+==================================================
+*/
 
 function EMA(data,period){
 
-const k = 2/(period+1);
+const k =
+2/(period+1);
 
-let ema = data[0];
+let ema =
+data[0];
 
-for(let i=1;i<data.length;i++){
+for(
+let i=1;
+i<data.length;
+i++
+){
 
 ema =
 data[i]*k +
@@ -101,6 +164,12 @@ ema*(1-k);
 
 return ema;
 }
+
+/*
+==================================================
+RSI
+==================================================
+*/
 
 function RSI(closes,period=14){
 
@@ -147,6 +216,12 @@ return 100 -
 (100/(1+rs));
 }
 
+/*
+==================================================
+ATR
+==================================================
+*/
+
 function ATR(candles,period=14){
 
 let trs = [];
@@ -158,10 +233,10 @@ i++
 ){
 
 const high =
-candles[i].high;
+parseFloat(candles[i].high);
 
 const low =
-candles[i].low;
+parseFloat(candles[i].low);
 
 trs.push(high-low);
 }
@@ -175,16 +250,64 @@ return recent.reduce(
 )/period;
 }
 
+/*
+==================================================
+MAIN
+==================================================
+*/
+
 const live =
 await fetchRates();
 
 const candles =
 await fetchCandles();
 
+/*
+==================================================
+SORT CANDLES ASCENDING
+==================================================
+*/
+
+candles.sort(
+
+(a,b)=>
+
+new Date(a.fromDate) -
+new Date(b.fromDate)
+
+);
+
+/*
+==================================================
+BUILD ARRAYS
+==================================================
+*/
+
 const closes =
 candles.map(c =>
 parseFloat(c.close)
 );
+
+const highs =
+candles.map(c =>
+parseFloat(c.high)
+);
+
+const lows =
+candles.map(c =>
+parseFloat(c.low)
+);
+
+const volumes =
+candles.map(c =>
+parseFloat(c.volume || 0)
+);
+
+/*
+==================================================
+INDICATORS
+==================================================
+*/
 
 const ema20 =
 EMA(
@@ -219,31 +342,45 @@ const spread =
 parseFloat(live.ask) -
 parseFloat(live.bid);
 
-let shortTrend =
+/*
+==================================================
+TREND ENGINE
+==================================================
+*/
+
+const shortTrend =
 currentPrice > ema20
 ? "BULLISH"
 : "BEARISH";
 
-let midTrend =
+const midTrend =
 ema20 > ema50
 ? "BULLISH"
 : "BEARISH";
 
-let longTrend =
+const longTrend =
 ema50 > ema100
 ? "BULLISH"
 : "BEARISH";
+
+/*
+==================================================
+SIGNAL ENGINE
+==================================================
+*/
 
 let signal = "HOLD";
 
 let confidence = 50;
 
 if(
+
 shortTrend==="BULLISH" &&
 midTrend==="BULLISH" &&
 longTrend==="BULLISH" &&
-rsi>48 &&
+rsi>50 &&
 rsi<68
+
 ){
 
 signal = "BUY";
@@ -252,16 +389,24 @@ confidence += 30;
 }
 
 if(
+
 shortTrend==="BEARISH" &&
 midTrend==="BEARISH" &&
 longTrend==="BEARISH" &&
 rsi<40
+
 ){
 
 signal = "SELL";
 
 confidence += 30;
 }
+
+/*
+==================================================
+TREND DURATION
+==================================================
+*/
 
 let duration =
 "INTRADAY";
@@ -276,14 +421,18 @@ duration =
 }
 
 if(
-Math.abs(
-ema20-ema100
-)>500
+Math.abs(ema20-ema100)>600
 ){
 
 duration =
 "POSITION";
 }
+
+/*
+==================================================
+SL / TP
+==================================================
+*/
 
 const stopLoss =
 signal==="BUY"
@@ -295,6 +444,12 @@ signal==="BUY"
 ? currentPrice + atr*3
 : currentPrice - atr*3;
 
+/*
+==================================================
+RISK ENGINE
+==================================================
+*/
+
 let riskScore =
 Math.round(
 40 +
@@ -304,6 +459,12 @@ Math.round(
 
 riskScore =
 Math.min(100,riskScore);
+
+/*
+==================================================
+POSITION ANALYSIS
+==================================================
+*/
 
 let pnl = "--";
 
@@ -361,11 +522,15 @@ positionAdvice =
 }
 }
 
+/*
+==================================================
+TELEGRAM ALERTS
+==================================================
+*/
+
 let shouldNotify = false;
 
-if(
-signal!==lastSignal
-){
+if(signal!==lastSignal){
 
 if(
 holding==="no" &&
@@ -402,7 +567,13 @@ ${confidence}%
 RSI:
 ${rsi.toFixed(2)}
 
-Trend:
+Short:
+${shortTrend}
+
+Mid:
+${midTrend}
+
+Long:
 ${longTrend}
 
 Duration:
@@ -413,6 +584,9 @@ ${stopLoss.toFixed(2)}
 
 TP:
 ${takeProfit.toFixed(2)}
+
+Leverage:
+${leverage}x
 `;
 
 const telegramResponse =
@@ -424,7 +598,8 @@ await fetch(
 method:"POST",
 
 headers:{
-"Content-Type":"application/json"
+"Content-Type":
+"application/json"
 },
 
 body:JSON.stringify({
@@ -439,10 +614,19 @@ text:message
 const telegramData =
 await telegramResponse.json();
 
-console.log(telegramData);
+console.log(
+"Telegram:",
+telegramData
+);
 }
 
 lastSignal = signal;
+
+/*
+==================================================
+RESPONSE
+==================================================
+*/
 
 res.status(200).json({
 
@@ -500,6 +684,8 @@ positionAdvice
 });
 
 }catch(err){
+
+console.log(err);
 
 res.status(500).json({
 
