@@ -3,7 +3,7 @@
 
 <head>
 
-<meta charset="UTF-8" />
+<meta charset="UTF-8"/>
 
 <meta
 name="viewport"
@@ -190,6 +190,27 @@ Price:
 </div>
 
 <div class="metric">
+Bid:
+<span id="bid">
+--
+</span>
+</div>
+
+<div class="metric">
+Ask:
+<span id="ask">
+--
+</span>
+</div>
+
+<div class="metric">
+Spread:
+<span id="spread">
+--
+</span>
+</div>
+
+<div class="metric">
 EMA20:
 <span id="ema20">
 --
@@ -227,6 +248,13 @@ Risk Score:
 <div class="metric">
 Confidence:
 <span id="confidence">
+--
+</span>
+</div>
+
+<div class="metric">
+Timestamp:
+<span id="timestamp">
 --
 </span>
 </div>
@@ -323,19 +351,29 @@ async function runAnalysis(){
 
         console.log(data);
 
+        if(data.error){
+
+            log(data.error);
+
+            return;
+        }
+
+        const signalValue =
+        data.signal || "HOLD";
+
         document
         .getElementById(
         "signal"
         )
         .innerText =
-        data.signal;
+        signalValue;
 
         document
         .getElementById(
         "signal"
         )
         .className =
-        `signal ${data.signal.toLowerCase()}`;
+        `signal ${(signalValue || "hold").toLowerCase()}`;
 
         document
         .getElementById(
@@ -343,6 +381,27 @@ async function runAnalysis(){
         )
         .innerText =
         data.price;
+
+        document
+        .getElementById(
+        "bid"
+        )
+        .innerText =
+        data.bid;
+
+        document
+        .getElementById(
+        "ask"
+        )
+        .innerText =
+        data.ask;
+
+        document
+        .getElementById(
+        "spread"
+        )
+        .innerText =
+        data.spread;
 
         document
         .getElementById(
@@ -385,6 +444,13 @@ async function runAnalysis(){
         )
         .innerText =
         data.confidence;
+
+        document
+        .getElementById(
+        "timestamp"
+        )
+        .innerText =
+        data.timestamp;
 
         document
         .getElementById(
