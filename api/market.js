@@ -1,7 +1,11 @@
+let lastSignal = "NONE";
+
 export default async function handler(
 req,
 res
 ){
+
+try{
 
 const API_KEY =
 process.env.ETORO_API_KEY;
@@ -21,36 +25,22 @@ req.query.instrumentId || "686";
 const holding =
 req.query.holding || "no";
 
-const entryPrice =
-parseFloat(
-req.query.entryPrice || 0
-);
-
 const leverage =
-parseFloat(
-req.query.leverage || 1
-);
+parseFloat(req.query.leverage || 1);
+
+const entryPrice =
+parseFloat(req.query.entryPrice || 0);
 
 const existingSL =
-parseFloat(
-req.query.existingSL || 0
-);
+parseFloat(req.query.existingSL || 0);
 
 const existingTP =
-parseFloat(
-req.query.existingTP || 0
-);
+parseFloat(req.query.existingTP || 0);
 
 const BASE_URL =
 "https://public-api.etoro.com/api/v1";
 
-/*
-==================================================
-FETCH LIVE ETORO RATE
-==================================================
-*/
-
-async function fetchEtoroLivePrice(){
+async function fetchRates(){
 
 const response =
 await fetch(
@@ -59,15 +49,9 @@ await fetch(
 
 {
 headers:{
-
-"x-api-key":
-API_KEY,
-
-"x-user-key":
-USER_KEY,
-
-"x-request-id":
-crypto.randomUUID()
+"x-api-key":API_KEY,
+"x-user-key":USER_KEY,
+"x-request-id":crypto.randomUUID()
 }
 }
 
@@ -76,58 +60,39 @@ crypto.randomUUID()
 const data =
 await response.json();
 
-if(
-!data.rates ||
-data.rates.length===0
-){
+return data.rates[0];
+}
 
-throw new Error(
-"No live rates returned"
+async function fetchCandles(){
+
+const response =
+await fetch(
+
+`${BASE_URL}/market-data/instruments/${instrumentId}/candles?period=OneYear`,
+
+{
+headers:{
+"x-api-key":API_KEY,
+"x-user-key":USER_KEY,
+"x-request-id":crypto.randomUUID()
+}
+}
+
 );
+
+const data =
+await response.json();
+
+return data;
 }
-
-const rate =
-data.rates[0];
-
-return {
-
-ask:
-parseFloat(rate.ask),
-
-bid:
-parseFloat(rate.bid),
-
-last:
-parseFloat(rate.lastExecution),
-
-spread:
-parseFloat(rate.ask) -
-parseFloat(rate.bid),
-
-timestamp:
-rate.date
-};
-}
-
-/*
-==================================================
-EMA
-==================================================
-*/
 
 function EMA(data,period){
 
-const k =
-2/(period+1);
+const k = 2/(period+1);
 
-let ema =
-data[0];
+let ema = data[0];
 
-for(
-let i=1;
-i<data.length;
-i++
-){
+for(let i=1;i<data.length;i++){
 
 ema =
 data[i]*k +
@@ -137,16 +102,9 @@ ema*(1-k);
 return ema;
 }
 
-/*
-==================================================
-RSI
-==================================================
-*/
-
 function RSI(closes,period=14){
 
 let gains = 0;
-
 let losses = 0;
 
 for(
@@ -167,8 +125,7 @@ gains += diff;
 
 }else{
 
-losses +=
-Math.abs(diff);
+losses += Math.abs(diff);
 }
 }
 
@@ -190,284 +147,163 @@ return 100 -
 (100/(1+rs));
 }
 
-/*
-==================================================
-ATR
-==================================================
-*/
+function ATR(candles,period=14){
 
-function ATR(closes){
-
-let volatility = 0;
+let trs = [];
 
 for(
 let i=1;
-i<closes.length;
+i<candles.length;
 i++
 ){
 
-volatility +=
-Math.abs(
-closes[i]-closes[i-1]
+const high =
+candles[i].high;
+
+const low =
+candles[i].low;
+
+trs.push(high-low);
+}
+
+const recent =
+trs.slice(-period);
+
+return recent.reduce(
+(a,b)=>a+b,
+0
+)/period;
+}
+
+const live =
+await fetchRates();
+
+const candles =
+await fetchCandles();
+
+const closes =
+candles.map(c =>
+parseFloat(c.close)
 );
-}
-
-return volatility /
-closes.length;
-}
-
-try{
-
-/*
-==================================================
-SIMULATED HISTORICAL SERIES
-==================================================
-*/
-
-const historical = [];
-
-let base = 29500;
-
-for(
-let i=0;
-i<150;
-i++
-){
-
-base +=
-(Math.random()-0.485)*100;
-
-historical.push(base);
-}
-
-/*
-==================================================
-LIVE PRICE
-==================================================
-*/
-
-const liveRate =
-await fetchEtoroLivePrice();
-
-const currentPrice =
-liveRate.last;
-
-historical.push(
-currentPrice
-);
-
-/*
-==================================================
-TECHNICALS
-==================================================
-*/
 
 const ema20 =
 EMA(
-historical.slice(-20),
+closes.slice(-20),
 20
 );
 
 const ema50 =
 EMA(
-historical.slice(-50),
+closes.slice(-50),
 50
 );
 
 const ema100 =
 EMA(
-historical.slice(-100),
+closes.slice(-100),
 100
 );
 
 const rsi =
-RSI(historical);
+RSI(closes);
 
 const atr =
-ATR(
-historical.slice(-20)
+ATR(candles);
+
+const currentPrice =
+parseFloat(
+live.lastExecution
 );
 
-const volatility =
-(
-atr/currentPrice
-)*100;
-
-/*
-==================================================
-TREND ENGINE
-==================================================
-*/
+const spread =
+parseFloat(live.ask) -
+parseFloat(live.bid);
 
 let shortTrend =
-"NEUTRAL";
+currentPrice > ema20
+? "BULLISH"
+: "BEARISH";
 
 let midTrend =
-"NEUTRAL";
+ema20 > ema50
+? "BULLISH"
+: "BEARISH";
 
 let longTrend =
-"NEUTRAL";
+ema50 > ema100
+? "BULLISH"
+: "BEARISH";
 
-if(currentPrice>ema20){
+let signal = "HOLD";
 
-shortTrend = "BULLISH";
-
-}else{
-
-shortTrend = "BEARISH";
-}
-
-if(ema20>ema50){
-
-midTrend = "BULLISH";
-
-}else{
-
-midTrend = "BEARISH";
-}
-
-if(ema50>ema100){
-
-longTrend = "BULLISH";
-
-}else{
-
-longTrend = "BEARISH";
-}
-
-/*
-==================================================
-SIGNAL ENGINE
-==================================================
-*/
-
-let signal =
-"HOLD";
-
-let confidence =
-50;
+let confidence = 50;
 
 if(
-
 shortTrend==="BULLISH" &&
 midTrend==="BULLISH" &&
 longTrend==="BULLISH" &&
-rsi>45 &&
+rsi>48 &&
 rsi<68
-
 ){
 
 signal = "BUY";
 
-confidence += 25;
+confidence += 30;
 }
 
 if(
-
 shortTrend==="BEARISH" &&
 midTrend==="BEARISH" &&
 longTrend==="BEARISH" &&
 rsi<40
-
 ){
 
 signal = "SELL";
 
-confidence += 25;
+confidence += 30;
 }
-
-/*
-==================================================
-TREND DURATION
-==================================================
-*/
 
 let duration =
 "INTRADAY";
 
 if(
-
-longTrend==="BULLISH" &&
-midTrend==="BULLISH"
-
+midTrend==="BULLISH" &&
+longTrend==="BULLISH"
 ){
 
 duration =
-"SWING (DAYS)";
+"SWING";
 }
 
 if(
-
-Math.abs(ema20-ema100)>250
-
+Math.abs(
+ema20-ema100
+)>500
 ){
 
 duration =
-"POSITION (WEEKS)";
+"POSITION";
 }
 
-/*
-==================================================
-SL / TP
-==================================================
-*/
+const stopLoss =
+signal==="BUY"
+? currentPrice - atr*1.5
+: currentPrice + atr*1.5;
 
-let stopLoss = null;
-
-let takeProfit = null;
-
-if(signal==="BUY"){
-
-stopLoss =
-currentPrice -
-atr*1.8;
-
-takeProfit =
-currentPrice +
-atr*4;
-}
-
-if(signal==="SELL"){
-
-stopLoss =
-currentPrice +
-atr*1.8;
-
-takeProfit =
-currentPrice -
-atr*4;
-}
-
-/*
-==================================================
-RISK ENGINE
-==================================================
-*/
+const takeProfit =
+signal==="BUY"
+? currentPrice + atr*3
+: currentPrice - atr*3;
 
 let riskScore =
-Math.min(
-100,
 Math.round(
-50 +
-volatility +
-(leverage*4)
-)
+40 +
+(leverage*5) +
+(spread*0.01)
 );
 
-if(
-leverage>=10
-){
-
-confidence -= 10;
-
-riskScore += 10;
-}
-
-/*
-==================================================
-POSITION ANALYSIS
-==================================================
-*/
+riskScore =
+Math.min(100,riskScore);
 
 let pnl = "--";
 
@@ -483,18 +319,15 @@ entryPrice>0
 
 const pnlValue =
 (
-(currentPrice-entryPrice)
-*
-leverage
-);
+currentPrice-entryPrice
+)*leverage;
 
 pnl =
 pnlValue.toFixed(2);
 
 exposure =
 (
-currentPrice*
-leverage
+currentPrice*leverage
 ).toFixed(2);
 
 if(signal==="BUY"){
@@ -510,10 +343,8 @@ positionAdvice =
 }
 
 if(
-
 existingTP>0 &&
 currentPrice>=existingTP
-
 ){
 
 positionAdvice =
@@ -521,10 +352,8 @@ positionAdvice =
 }
 
 if(
-
 existingSL>0 &&
 currentPrice<=existingSL
-
 ){
 
 positionAdvice =
@@ -532,51 +361,11 @@ positionAdvice =
 }
 }
 
-/*
-==================================================
-CONFIDENCE ENGINE
-==================================================
-*/
+let shouldNotify = false;
 
 if(
-shortTrend===midTrend
+signal!==lastSignal
 ){
-
-confidence += 5;
-}
-
-if(
-midTrend===longTrend
-){
-
-confidence += 5;
-}
-
-if(
-rsi>48 &&
-rsi<62
-){
-
-confidence += 5;
-}
-
-confidence =
-Math.min(
-95,
-Math.max(
-40,
-confidence
-)
-);
-
-/*
-==================================================
-TELEGRAM FILTERING
-==================================================
-*/
-
-let shouldNotify =
-false;
 
 if(
 holding==="no" &&
@@ -593,21 +382,13 @@ signal==="SELL"
 
 shouldNotify = true;
 }
+}
 
-/*
-==================================================
-TELEGRAM MESSAGE
-==================================================
-*/
-
-if(
-shouldNotify
-){
+if(shouldNotify){
 
 const message =
 
-`
-${signal} SIGNAL
+`${signal} SIGNAL
 
 Instrument:
 ${instrumentId}
@@ -615,40 +396,26 @@ ${instrumentId}
 Price:
 ${currentPrice.toFixed(2)}
 
-Short Trend:
-${shortTrend}
-
-Mid Trend:
-${midTrend}
-
-Long Trend:
-${longTrend}
-
-Expected Duration:
-${duration}
+Confidence:
+${confidence}%
 
 RSI:
 ${rsi.toFixed(2)}
 
-Confidence:
-${confidence}%
+Trend:
+${longTrend}
 
-Risk:
-${riskScore}/100
-
-Entry:
-${currentPrice.toFixed(2)}
+Duration:
+${duration}
 
 SL:
 ${stopLoss.toFixed(2)}
 
 TP:
 ${takeProfit.toFixed(2)}
-
-Leverage:
-${leverage}x
 `;
 
+const telegramResponse =
 await fetch(
 
 `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
@@ -657,26 +424,25 @@ await fetch(
 method:"POST",
 
 headers:{
-"Content-Type":
-"application/json"
+"Content-Type":"application/json"
 },
 
 body:JSON.stringify({
 
 chat_id:CHAT_ID,
-
 text:message
 })
 }
 
 );
+
+const telegramData =
+await telegramResponse.json();
+
+console.log(telegramData);
 }
 
-/*
-==================================================
-RESPONSE
-==================================================
-*/
+lastSignal = signal;
 
 res.status(200).json({
 
@@ -684,18 +450,6 @@ signal,
 
 price:
 currentPrice.toFixed(2),
-
-bid:
-liveRate.bid.toFixed(2),
-
-ask:
-liveRate.ask.toFixed(2),
-
-spread:
-liveRate.spread.toFixed(2),
-
-timestamp:
-liveRate.timestamp,
 
 ema20:
 ema20.toFixed(2),
@@ -709,35 +463,34 @@ ema100.toFixed(2),
 rsi:
 rsi.toFixed(2),
 
-volatility:
-volatility.toFixed(2)+"%",
+atr:
+atr.toFixed(2),
 
-riskScore:
-riskScore+"/100",
+spread:
+spread.toFixed(2),
 
 confidence:
 confidence+"%",
+
+duration,
+
+riskScore:
+riskScore+"/100",
 
 entry:
 currentPrice.toFixed(2),
 
 stopLoss:
-stopLoss
-? stopLoss.toFixed(2)
-: "--",
+stopLoss.toFixed(2),
 
 takeProfit:
-takeProfit
-? takeProfit.toFixed(2)
-: "--",
+takeProfit.toFixed(2),
 
 shortTrend,
 
 midTrend,
 
 longTrend,
-
-duration,
 
 pnl,
 
