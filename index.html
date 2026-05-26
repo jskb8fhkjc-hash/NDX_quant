@@ -17,116 +17,74 @@ Quant Dashboard PRO
 <style>
 
 body{
-
-    background:#020617;
-
-    color:white;
-
-    font-family:Arial;
-
-    padding:20px;
+background:#020617;
+color:white;
+font-family:Arial;
+padding:20px;
 }
 
 .container{
-
-    max-width:900px;
-
-    margin:auto;
+max-width:1000px;
+margin:auto;
 }
 
 .card{
-
-    background:#0f172a;
-
-    border-radius:16px;
-
-    padding:20px;
-
-    margin-bottom:20px;
+background:#0f172a;
+padding:20px;
+border-radius:16px;
+margin-bottom:20px;
 }
 
-input{
-
-    width:100%;
-
-    padding:12px;
-
-    border-radius:12px;
-
-    border:none;
-
-    margin-top:10px;
-
-    margin-bottom:10px;
-
-    background:#1e293b;
-
-    color:white;
-
-    font-size:18px;
+input,select{
+width:100%;
+padding:12px;
+margin-top:10px;
+margin-bottom:10px;
+border:none;
+border-radius:12px;
+background:#1e293b;
+color:white;
+font-size:16px;
 }
 
 button{
-
-    padding:12px 20px;
-
-    border:none;
-
-    border-radius:12px;
-
-    background:#06b6d4;
-
-    color:white;
-
-    font-weight:bold;
-
-    cursor:pointer;
+padding:14px 20px;
+background:#06b6d4;
+border:none;
+border-radius:12px;
+font-weight:bold;
+color:white;
+cursor:pointer;
 }
 
 .metric{
-
-    margin-bottom:12px;
-
-    font-size:18px;
+margin-bottom:12px;
+font-size:18px;
 }
 
 .signal{
-
-    font-size:36px;
-
-    font-weight:900;
+font-size:40px;
+font-weight:900;
 }
 
-.buy{
+.buy{color:#22c55e;}
+.sell{color:#ef4444;}
+.hold{color:#facc15;}
 
-    color:#22c55e;
-}
-
-.sell{
-
-    color:#ef4444;
-}
-
-.hold{
-
-    color:#facc15;
+.grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:12px;
 }
 
 .log{
-
-    background:black;
-
-    color:#22c55e;
-
-    padding:12px;
-
-    border-radius:12px;
-
-    height:240px;
-
-    overflow:auto;
-
-    font-family:monospace;
+background:black;
+padding:12px;
+height:220px;
+overflow:auto;
+font-family:monospace;
+color:#22c55e;
+border-radius:12px;
 }
 
 </style>
@@ -152,10 +110,85 @@ id="instrumentInput"
 value="686"
 />
 
+<div class="grid">
+
+<div>
+
+<label>
+Currently Holding?
+</label>
+
+<select id="holding">
+
+<option value="no">
+NO
+</option>
+
+<option value="yes">
+YES
+</option>
+
+</select>
+
+</div>
+
+<div>
+
+<label>
+Leverage
+</label>
+
+<input
+id="leverage"
+type="number"
+value="1"
+/>
+
+</div>
+
+</div>
+
+<div class="grid">
+
+<div>
+
+<label>
+Entry Price
+</label>
+
+<input
+id="entryPrice"
+type="number"
+/>
+
+</div>
+
+<div>
+
+<label>
+Current Stop Loss
+</label>
+
+<input
+id="existingSL"
+type="number"
+/>
+
+</div>
+
+</div>
+
+<label>
+Current Take Profit
+</label>
+
+<input
+id="existingTP"
+type="number"
+/>
+
 <button onclick="runAnalysis()">
-
 Run Analysis
-
 </button>
 
 </div>
@@ -163,7 +196,7 @@ Run Analysis
 <div class="card">
 
 <h2>
-Signal
+Primary Signal
 </h2>
 
 <div
@@ -179,82 +212,33 @@ WAITING...
 <div class="card">
 
 <h2>
-Market Metrics
+Trend Bias
 </h2>
 
 <div class="metric">
-Price:
-<span id="price">
+Short Term:
+<span id="shortTrend">
 --
 </span>
 </div>
 
 <div class="metric">
-Bid:
-<span id="bid">
+Mid Term:
+<span id="midTrend">
 --
 </span>
 </div>
 
 <div class="metric">
-Ask:
-<span id="ask">
+Long Term:
+<span id="longTrend">
 --
 </span>
 </div>
 
 <div class="metric">
-Spread:
-<span id="spread">
---
-</span>
-</div>
-
-<div class="metric">
-EMA20:
-<span id="ema20">
---
-</span>
-</div>
-
-<div class="metric">
-EMA50:
-<span id="ema50">
---
-</span>
-</div>
-
-<div class="metric">
-RSI:
-<span id="rsi">
---
-</span>
-</div>
-
-<div class="metric">
-Volatility:
-<span id="volatility">
---
-</span>
-</div>
-
-<div class="metric">
-Risk Score:
-<span id="risk">
---
-</span>
-</div>
-
-<div class="metric">
-Confidence:
-<span id="confidence">
---
-</span>
-</div>
-
-<div class="metric">
-Timestamp:
-<span id="timestamp">
+Suggested Holding Duration:
+<span id="duration">
 --
 </span>
 </div>
@@ -264,28 +248,65 @@ Timestamp:
 <div class="card">
 
 <h2>
-Trade Plan
+Trade Metrics
 </h2>
 
 <div class="metric">
-Entry:
-<span id="entry">
---
-</span>
+Price:
+<span id="price">--</span>
 </div>
 
 <div class="metric">
-Stop Loss:
-<span id="sl">
---
-</span>
+RSI:
+<span id="rsi">--</span>
 </div>
 
 <div class="metric">
-Take Profit:
-<span id="tp">
---
-</span>
+Risk:
+<span id="risk">--</span>
+</div>
+
+<div class="metric">
+Confidence:
+<span id="confidence">--</span>
+</div>
+
+<div class="metric">
+Suggested Entry:
+<span id="entry">--</span>
+</div>
+
+<div class="metric">
+Suggested SL:
+<span id="sl">--</span>
+</div>
+
+<div class="metric">
+Suggested TP:
+<span id="tp">--</span>
+</div>
+
+</div>
+
+<div class="card">
+
+<h2>
+Position Analysis
+</h2>
+
+<div class="metric">
+PnL:
+<span id="pnl">--</span>
+</div>
+
+<div class="metric">
+Leveraged Exposure:
+<span id="exposure">--</span>
+</div>
+
+<div class="metric">
+Position Advice:
+<span id="positionAdvice">--</span>
 </div>
 
 </div>
@@ -309,180 +330,159 @@ class="log">
 <script>
 
 const logBox =
-document.getElementById(
-"logBox"
-);
+document.getElementById("logBox");
 
-function log(message){
+function log(msg){
 
-    const time =
-    new Date()
-    .toLocaleTimeString();
+const time =
+new Date().toLocaleTimeString();
 
-    logBox.innerHTML +=
-    `<div>[${time}] ${message}</div>`;
+logBox.innerHTML +=
+`<div>[${time}] ${msg}</div>`;
 
-    logBox.scrollTop =
-    logBox.scrollHeight;
+logBox.scrollTop =
+logBox.scrollHeight;
 }
 
 async function runAnalysis(){
 
-    try{
+try{
 
-        const instrumentId =
-        document.getElementById(
-        "instrumentInput"
-        ).value;
+const instrumentId =
+document.getElementById(
+"instrumentInput"
+).value;
 
-        log(
-        `Running analysis for ${instrumentId}`
-        );
+const holding =
+document.getElementById(
+"holding"
+).value;
 
-        const response =
-        await fetch(
+const entryPrice =
+document.getElementById(
+"entryPrice"
+).value;
 
-`/api/market?instrumentId=${instrumentId}`
+const leverage =
+document.getElementById(
+"leverage"
+).value;
 
-        );
+const existingSL =
+document.getElementById(
+"existingSL"
+).value;
 
-        const data =
-        await response.json();
+const existingTP =
+document.getElementById(
+"existingTP"
+).value;
 
-        console.log(data);
+const response =
+await fetch(
 
-        if(data.error){
+`/api/market?instrumentId=${instrumentId}&holding=${holding}&entryPrice=${entryPrice}&leverage=${leverage}&existingSL=${existingSL}&existingTP=${existingTP}`
 
-            log(data.error);
+);
 
-            return;
-        }
+const data =
+await response.json();
 
-        const signalValue =
-        data.signal || "HOLD";
+if(data.error){
 
-        document
-        .getElementById(
-        "signal"
-        )
-        .innerText =
-        signalValue;
+log(data.error);
 
-        document
-        .getElementById(
-        "signal"
-        )
-        .className =
-        `signal ${(signalValue || "hold").toLowerCase()}`;
+return;
+}
 
-        document
-        .getElementById(
-        "price"
-        )
-        .innerText =
-        data.price;
+document.getElementById(
+"signal"
+).innerText =
+data.signal;
 
-        document
-        .getElementById(
-        "bid"
-        )
-        .innerText =
-        data.bid;
+document.getElementById(
+"signal"
+).className =
+`signal ${data.signal.toLowerCase()}`;
 
-        document
-        .getElementById(
-        "ask"
-        )
-        .innerText =
-        data.ask;
+document.getElementById(
+"shortTrend"
+).innerText =
+data.shortTrend;
 
-        document
-        .getElementById(
-        "spread"
-        )
-        .innerText =
-        data.spread;
+document.getElementById(
+"midTrend"
+).innerText =
+data.midTrend;
 
-        document
-        .getElementById(
-        "ema20"
-        )
-        .innerText =
-        data.ema20;
+document.getElementById(
+"longTrend"
+).innerText =
+data.longTrend;
 
-        document
-        .getElementById(
-        "ema50"
-        )
-        .innerText =
-        data.ema50;
+document.getElementById(
+"duration"
+).innerText =
+data.duration;
 
-        document
-        .getElementById(
-        "rsi"
-        )
-        .innerText =
-        data.rsi;
+document.getElementById(
+"price"
+).innerText =
+data.price;
 
-        document
-        .getElementById(
-        "volatility"
-        )
-        .innerText =
-        data.volatility;
+document.getElementById(
+"rsi"
+).innerText =
+data.rsi;
 
-        document
-        .getElementById(
-        "risk"
-        )
-        .innerText =
-        data.riskScore;
+document.getElementById(
+"risk"
+).innerText =
+data.riskScore;
 
-        document
-        .getElementById(
-        "confidence"
-        )
-        .innerText =
-        data.confidence;
+document.getElementById(
+"confidence"
+).innerText =
+data.confidence;
 
-        document
-        .getElementById(
-        "timestamp"
-        )
-        .innerText =
-        data.timestamp;
+document.getElementById(
+"entry"
+).innerText =
+data.entry;
 
-        document
-        .getElementById(
-        "entry"
-        )
-        .innerText =
-        data.entry;
+document.getElementById(
+"sl"
+).innerText =
+data.stopLoss;
 
-        document
-        .getElementById(
-        "sl"
-        )
-        .innerText =
-        data.stopLoss;
+document.getElementById(
+"tp"
+).innerText =
+data.takeProfit;
 
-        document
-        .getElementById(
-        "tp"
-        )
-        .innerText =
-        data.takeProfit;
+document.getElementById(
+"pnl"
+).innerText =
+data.pnl;
 
-        log(
-        `Analysis completed`
-        );
+document.getElementById(
+"exposure"
+).innerText =
+data.exposure;
 
-    }catch(err){
+document.getElementById(
+"positionAdvice"
+).innerText =
+data.positionAdvice;
 
-        log(
-        err.message
-        );
-    }
+log(
+`Analysis complete`
+);
+
+}catch(err){
+
+log(err.message);
+}
 }
 
 </script>
