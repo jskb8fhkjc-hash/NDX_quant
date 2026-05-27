@@ -11,7 +11,7 @@ function uuidv4(){
 
 /*
 ==================================================
-REDIS
+REDIS INITIALIZATION
 ==================================================
 */
 const redis = new Redis({
@@ -37,7 +37,7 @@ async function fetchWithTimeout(url, options = {}, timeout = 15000){
 
 /*
 ==================================================
-EMA
+TECHNICAL INDICATORS (EMA, RSI, ATR)
 ==================================================
 */
 function EMA(data, period){
@@ -50,11 +50,6 @@ function EMA(data, period){
   return ema;
 }
 
-/*
-==================================================
-RSI (WILDER)
-==================================================
-*/
 function RSI(closes, period=14){
   if(closes.length < period+1) return 50;
   let gains = 0;
@@ -78,11 +73,6 @@ function RSI(closes, period=14){
   return 100 - (100/(1+rs));
 }
 
-/*
-==================================================
-ATR
-==================================================
-*/
 function ATR(candles, period=14){
   if(candles.length < period+1) return 0;
   const trs = [];
@@ -103,6 +93,17 @@ MAIN HANDLER
 ==================================================
 */
 export default async function handler(req, res){
+  /*
+  ==================================================
+  SECURITY / CONTEXT CHECK
+  ==================================================
+  */
+  const isCronTrigger = req.headers['x-vercel-cron'] === '1';
+  
+  if (!isCronTrigger && !req.headers['referer'] && !req.headers['host']?.includes('localhost')) {
+    return res.status(401).json({ success: false, error: "Unauthorized access attempt" });
+  }
+
   try {
     const API_KEY = process.env.ETORO_API_KEY;
     const USER_KEY = process.env.ETORO_USER_KEY;
@@ -121,7 +122,7 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    LOAD STATE
+    LOAD STATE FROM UPSTASH
     ==================================================
     */
     let state = await redis.get(`position-${instrumentId}`);
@@ -147,7 +148,7 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    UPDATE POSITION
+    DATABASE POSITION STATE SYNC
     ==================================================
     */
     if(updatePosition){
@@ -171,7 +172,7 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    FETCH LIVE RATES
+    FETCH LIVE DATA & MARKET DEPTH
     ==================================================
     */
     const liveResponse = await fetchWithTimeout(
@@ -200,7 +201,7 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    FETCH CANDLES
+    FETCH HISTORICAL CANDLES
     ==================================================
     */
     const candleResponse = await fetchWithTimeout(
@@ -219,11 +220,8 @@ export default async function handler(req, res){
     }
 
     const candleData = await candleResponse.json();
-    if(!candleData.candles || candleData.candles.length===0){
-      throw new Error("No candle wrapper returned");
-    }
-    if(!candleData.candles[0].candles){
-      throw new Error("No nested candles array");
+    if(!candleData.candles || candleData.candles.length===0 || !candleData.candles[0].candles){
+      throw new Error("Invalid candle matrix dataset structure returned");
     }
 
     const candles = candleData.candles[0].candles;
@@ -232,7 +230,7 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    INDICATORS
+    CALCULATE TECHNICAL ENGINE VARIABLES
     ==================================================
     */
     const ema20 = EMA(closes.slice(-20), 20);
@@ -252,14 +250,12 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    SIGNAL ENGINE
+    SIGNAL STRATEGY INTERFACE
     ==================================================
     */
     let signal = "HOLD";
     let confidence = 50;
 
-    // --- TELEGRAM TESTING BACKDOOR ---
-    // Change this false to true when you want to force test a SELL alert message!
     const TRIGGER_MOCK_SELL_TEST = false; 
 
     if (TRIGGER_MOCK_SELL_TEST) {
@@ -277,14 +273,13 @@ export default async function handler(req, res){
       }
     }
 
-    // DURATION
     let duration = "INTRADAY";
     if(midTrend==="BULLISH" && longTrend==="BULLISH") duration = "SWING";
     if(Math.abs(ema20-ema100)>600) duration = "POSITION";
 
     /*
     ==================================================
-    ACCURATE RISK TARGETS (3-WAY LOGIC FIX)
+    DYNAMIC RISK MANAGEMENT TARGET VALUES
     ==================================================
     */
     let stopLoss = 0;
@@ -306,7 +301,7 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    POSITION ANALYSIS
+    ACTIVE OPEN POSITION EVALUATOR
     ==================================================
     */
     let pnl = "--";
@@ -326,7 +321,7 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    TELEGRAM ENGINE
+    TELEGRAM EXECUTOR WEBHOOK
     ==================================================
     */
     let shouldNotify = false;
@@ -356,7 +351,7 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    RESPONSE
+    CLIENT RESPONSES JSON OBJECT OUT
     ==================================================
     */
     return res.status(200).json({
