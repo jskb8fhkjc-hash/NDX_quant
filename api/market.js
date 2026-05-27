@@ -260,7 +260,7 @@ export default async function handler(req, res){
 
     // --- TELEGRAM TESTING BACKDOOR ---
     // Change this false to true when you want to force test a SELL alert message!
-    const TRIGGER_MOCK_SELL_TEST = false; 
+    const TRIGGER_MOCK_SELL_TEST = true; 
 
     if (TRIGGER_MOCK_SELL_TEST) {
       signal = "SELL";
