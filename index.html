@@ -3,7 +3,7 @@
 
 <head>
 
-<meta charset="UTF-8" />
+<meta charset="UTF-8"/>
 
 <meta
 name="viewport"
@@ -92,15 +92,11 @@ cursor:pointer;
 width:100%;
 font-size:16px;
 transition:0.2s;
+margin-top:8px;
 }
 
 button:hover{
 opacity:0.9;
-}
-
-button:disabled{
-opacity:0.5;
-cursor:not-allowed;
 }
 
 .metric{
@@ -138,7 +134,7 @@ border:1px solid #1e293b;
 }
 
 .loading{
-opacity:0.6;
+opacity:0.7;
 }
 
 </style>
@@ -212,6 +208,22 @@ type="number"
 
 <div>
 
+<label>Amount Invested</label>
+
+<input
+id="amountInvested"
+type="number"
+value="1000"
+/>
+
+</div>
+
+</div>
+
+<div class="grid">
+
+<div>
+
 <label>Current Stop Loss</label>
 
 <input
@@ -221,7 +233,7 @@ type="number"
 
 </div>
 
-</div>
+<div>
 
 <label>Current Take Profit</label>
 
@@ -230,9 +242,17 @@ id="existingTP"
 type="number"
 />
 
+</div>
+
+</div>
+
+<button onclick="savePosition()">
+Save Position
+</button>
+
 <button
 id="runBtn"
-onclick="runAnalysis()"
+onclick="runAnalysis(false)"
 >
 
 Run Analysis
@@ -257,17 +277,13 @@ WAITING...
 </div>
 
 <div class="metric">
-
 Confidence:
 <span id="confidence">--</span>
-
 </div>
 
 <div class="metric">
-
 Trade Duration:
 <span id="duration">--</span>
-
 </div>
 
 </div>
@@ -416,7 +432,7 @@ let isRunning = false;
 
 /*
 ==================================================
-SAFE LOGGING
+LOGGING
 ==================================================
 */
 
@@ -446,14 +462,35 @@ logBox.scrollHeight;
 
 /*
 ==================================================
-UPDATE UI
+SAFE UI UPDATE
 ==================================================
 */
 
 function setValue(id,value){
 
-document.getElementById(id)
-.innerText = value ?? "--";
+const el =
+document.getElementById(id);
+
+if(el){
+
+el.innerText =
+value ?? "--";
+}
+}
+
+/*
+==================================================
+SAVE POSITION
+==================================================
+*/
+
+async function savePosition(){
+
+log("Saving position...");
+
+await runAnalysis(true);
+
+log("Position saved");
 }
 
 /*
@@ -462,11 +499,12 @@ RUN ANALYSIS
 ==================================================
 */
 
-async function runAnalysis(){
+async function runAnalysis(
+updatePosition=false
+){
 
 if(isRunning){
 
-log("Analysis already running...");
 return;
 }
 
@@ -524,9 +562,16 @@ document.getElementById(
 ).value || 0
 );
 
+const amountInvested =
+encodeURIComponent(
+document.getElementById(
+"amountInvested"
+).value || 1000
+);
+
 const url =
 
-`/api/market?instrumentId=${instrumentId}&holding=${holding}&leverage=${leverage}&entryPrice=${entryPrice}&existingSL=${existingSL}&existingTP=${existingTP}`;
+`/api/market?instrumentId=${instrumentId}&holding=${holding}&leverage=${leverage}&entryPrice=${entryPrice}&existingSL=${existingSL}&existingTP=${existingTP}&amountInvested=${amountInvested}&updatePosition=${updatePosition}`;
 
 const response =
 await fetch(url);
@@ -543,7 +588,9 @@ await response.json();
 
 if(data.error){
 
-throw new Error(data.error);
+throw new Error(
+data.error
+);
 }
 
 /*
@@ -553,7 +600,9 @@ SIGNAL
 */
 
 const signalElement =
-document.getElementById("signal");
+document.getElementById(
+"signal"
+);
 
 signalElement.innerText =
 data.signal || "HOLD";
@@ -689,11 +738,11 @@ document.body.classList.remove(
 
 /*
 ==================================================
-AUTO START
+INITIAL LOAD
 ==================================================
 */
 
-runAnalysis();
+runAnalysis(false);
 
 /*
 ==================================================
@@ -704,10 +753,11 @@ AUTO REFRESH
 const REFRESH_INTERVAL =
 1000 * 60 * 15;
 
-setInterval(
-runAnalysis,
-REFRESH_INTERVAL
-);
+setInterval(() => {
+
+runAnalysis(false);
+
+}, REFRESH_INTERVAL);
 
 </script>
 
