@@ -397,16 +397,18 @@ Date.now().toString()
 
 if(!liveResponse.ok){
 
-throw new Error(
-`Rates API failed ${liveResponse.status}`
-);
-}
-const liveData =
-await liveResponse.json();
+const errorText =
+await liveResponse.text();
 
 console.log(
-JSON.stringify(liveData)
+"ETORO ERROR:",
+errorText
 );
+
+throw new Error(
+`Rates API failed ${liveResponse.status} - ${errorText}`
+);
+}
 
 
 if(
