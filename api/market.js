@@ -126,7 +126,6 @@ export default async function handler(req, res){
     */
     let state = await redis.get(`position-${instrumentId}`);
 
-    // Robust parsing layer to handle stringified Upstash structures
     if (typeof state === "string") {
       try { state = JSON.parse(state); } catch(e) { state = null; }
     }
@@ -137,13 +136,19 @@ export default async function handler(req, res){
         entryPrice: 0,
         leverage: 1,
         amountInvested: 1000,
+        existingSL: 0,
+        existingTP: 0,
         lastSignal: "NONE"
       };
     }
 
+    // Migration fallback for existing DB entries missing SL/TP properties
+    if (state.existingSL === undefined) state.existingSL = 0;
+    if (state.existingTP === undefined) state.existingTP = 0;
+
     /*
     ==================================================
-    UPDATE POSITION (IMMEDIATE PERSISTENCE BOOST)
+    UPDATE POSITION (SAVES ALL PARAMS TO UPSTASH)
     ==================================================
     */
     if(updatePosition){
@@ -152,11 +157,15 @@ export default async function handler(req, res){
         state.entryPrice = entryPrice;
         state.leverage = leverage;
         state.amountInvested = amountInvested;
+        state.existingSL = existingSL;
+        state.existingTP = existingTP;
       } else {
         state.holding = false;
         state.entryPrice = 0;
         state.leverage = 1;
         state.amountInvested = 0;
+        state.existingSL = 0;
+        state.existingTP = 0;
       }
       await redis.set(`position-${instrumentId}`, state);
     }
@@ -183,9 +192,7 @@ export default async function handler(req, res){
       throw new Error(`Rates API failed ${liveResponse.status} - ${errorText}`);
     }
 
-    // CRITICAL FIX: Extract JSON to populate liveData object
     const liveData = await liveResponse.json();
-
     if(!liveData.rates || liveData.rates.length===0){
       throw new Error("No rates returned");
     }
@@ -213,21 +220,15 @@ export default async function handler(req, res){
     }
 
     const candleData = await candleResponse.json();
-
     if(!candleData.candles || candleData.candles.length===0){
       throw new Error("No candle wrapper returned");
     }
-
     if(!candleData.candles[0].candles){
       throw new Error("No nested candles array");
     }
 
     const candles = candleData.candles[0].candles;
-
-    // SORT ASC
     candles.sort((a,b) => new Date(a.fromDate) - new Date(b.fromDate));
-
-    // BUILD CLOSES
     const closes = candles.map(c => parseFloat(c.close));
 
     /*
@@ -246,7 +247,6 @@ export default async function handler(req, res){
     const bid = parseFloat(live.bid);
     const spread = ask-bid;
 
-    // TREND
     const shortTrend = currentPrice > ema20 ? "BULLISH" : "BEARISH";
     const midTrend = ema20 > ema50 ? "BULLISH" : "BEARISH";
     const longTrend = ema50 > ema100 ? "BULLISH" : "BEARISH";
@@ -269,17 +269,16 @@ export default async function handler(req, res){
       confidence += 30;
     }
 
-    // DURATION
     let duration = "INTRADAY";
     if(midTrend==="BULLISH" && longTrend==="BULLISH") duration = "SWING";
     if(Math.abs(ema20-ema100)>600) duration = "POSITION";
 
-    // SL / TP
     const stopLoss = signal==="BUY" ? currentPrice-(atr*1.5) : currentPrice+(atr*1.5);
     const takeProfit = signal==="BUY" ? currentPrice+(atr*3) : currentPrice-(atr*3);
 
-    // RISK
-    let riskScore = Math.min(100, Math.round(40 + (leverage*5) + (spread*0.01)));
+    // Use current active database leverage for accurate risk assessment on refresh
+    const activeLeverage = state.holding ? state.leverage : leverage;
+    let riskScore = Math.min(100, Math.round(40 + (activeLeverage*5) + (spread*0.01)));
 
     /*
     ==================================================
@@ -297,28 +296,25 @@ export default async function handler(req, res){
       exposure = (state.amountInvested * state.leverage).toFixed(2);
       positionAdvice = signal==="SELL" ? "CONSIDER EXIT" : "HOLD POSITION";
 
-      if(existingTP>0 && currentPrice>=existingTP) positionAdvice = "TAKE PROFIT HIT";
-      if(existingSL>0 && currentPrice<=existingSL) positionAdvice = "STOP LOSS BREACHED";
+      // Fixed: Checked against saved state parameters instead of query string variables
+      if(state.existingTP>0 && currentPrice>=state.existingTP) positionAdvice = "TAKE PROFIT HIT";
+      if(state.existingSL>0 && currentPrice<=state.existingSL) positionAdvice = "STOP LOSS BREACHED";
     }
 
     /*
     ==================================================
-    TELEGRAM & UNLOCKED STATE TRACKING
+    TELEGRAM ENGINE
     ==================================================
     */
     let shouldNotify = false;
-
     if(signal !== state.lastSignal){
       if(!state.holding && signal==="BUY") shouldNotify = true;
       if(state.holding && signal==="SELL") shouldNotify = true;
-      
-      // CRITICAL FIX: Track the new signal even if it doesn't alert the phone
       state.lastSignal = signal;
     }
 
     if(shouldNotify){
       const message = `${signal} SIGNAL\n\nInstrument: ${instrumentId}\nPrice: ${currentPrice.toFixed(2)}\nConfidence: ${confidence}%\nRSI: ${rsi.toFixed(2)}\nEMA20: ${ema20.toFixed(2)}\nEMA50: ${ema50.toFixed(2)}\nEMA100: ${ema100.toFixed(2)}\nDuration: ${duration}\nSL: ${stopLoss.toFixed(2)}\nTP: ${takeProfit.toFixed(2)}\nPnL: ${pnl}`;
-
       try {
         await fetchWithTimeout(
           `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
@@ -333,12 +329,11 @@ export default async function handler(req, res){
       }
     }
 
-    // CRITICAL FIX: Sync all mutations back to Redis on every healthy cycle
     await redis.set(`position-${instrumentId}`, state);
 
     /*
     ==================================================
-    RESPONSE
+    RESPONSE (RETURNS EXTENDED DATA BACK TO UI)
     ==================================================
     */
     return res.status(200).json({
@@ -364,6 +359,9 @@ export default async function handler(req, res){
       holding: state.holding,
       entryPrice: state.entryPrice,
       leverage: state.leverage,
+      amountInvested: state.amountInvested,
+      existingSL: state.existingSL,
+      existingTP: state.existingTP,
       pnl,
       exposure,
       positionAdvice
@@ -371,9 +369,6 @@ export default async function handler(req, res){
 
   } catch(err) {
     console.error("Fatal Runtime Error:", err);
-    return res.status(500).json({
-      success: false,
-      error: err.message
-    });
+    return res.status(500).json({ success: false, error: err.message });
   }
 }
