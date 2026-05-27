@@ -142,13 +142,12 @@ export default async function handler(req, res){
       };
     }
 
-    // Migration fallback for existing DB entries missing SL/TP properties
     if (state.existingSL === undefined) state.existingSL = 0;
     if (state.existingTP === undefined) state.existingTP = 0;
 
     /*
     ==================================================
-    UPDATE POSITION (SAVES ALL PARAMS TO UPSTASH)
+    UPDATE POSITION
     ==================================================
     */
     if(updatePosition){
@@ -249,7 +248,8 @@ export default async function handler(req, res){
 
     const shortTrend = currentPrice > ema20 ? "BULLISH" : "BEARISH";
     const midTrend = ema20 > ema50 ? "BULLISH" : "BEARISH";
-    const longTrend = ema50 > ema100 ? "BULLISH" : "    /*
+    const longTrend = ema50 > ema100 ? "BULLISH" : "BEARISH";
+
     /*
     ==================================================
     SIGNAL ENGINE
@@ -259,14 +259,13 @@ export default async function handler(req, res){
     let confidence = 50;
 
     // --- TELEGRAM TESTING BACKDOOR ---
-    // To test your SELL message, temporarily change 'false' to 'true'
-    const TRIGGER_MOCK_SELL_TEST = true; 
+    // Change this false to true when you want to force test a SELL alert message!
+    const TRIGGER_MOCK_SELL_TEST = false; 
 
     if (TRIGGER_MOCK_SELL_TEST) {
       signal = "SELL";
       confidence = 99;
     } else {
-      // Your actual live trading logic
       if(shortTrend==="BULLISH" && midTrend==="BULLISH" && longTrend==="BULLISH" && rsi>50 && rsi<68){
         signal = "BUY";
         confidence += 30;
@@ -298,14 +297,13 @@ export default async function handler(req, res){
       stopLoss = currentPrice + (atr * 1.5);
       takeProfit = currentPrice - (atr * 3);
     } else {
-      // For HOLD states: Use baseline tracking parameters or clear targets
       stopLoss = currentPrice - (atr * 2);
       takeProfit = currentPrice + (atr * 2);
     }
 
-    // Use current active database leverage for accurate risk assessment on refresh
     const activeLeverage = state.holding ? state.leverage : leverage;
     let riskScore = Math.min(100, Math.round(40 + (activeLeverage*5) + (spread*0.01)));
+
     /*
     ==================================================
     POSITION ANALYSIS
@@ -322,7 +320,6 @@ export default async function handler(req, res){
       exposure = (state.amountInvested * state.leverage).toFixed(2);
       positionAdvice = signal==="SELL" ? "CONSIDER EXIT" : "HOLD POSITION";
 
-      // Fixed: Checked against saved state parameters instead of query string variables
       if(state.existingTP>0 && currentPrice>=state.existingTP) positionAdvice = "TAKE PROFIT HIT";
       if(state.existingSL>0 && currentPrice<=state.existingSL) positionAdvice = "STOP LOSS BREACHED";
     }
@@ -359,7 +356,7 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    RESPONSE (RETURNS EXTENDED DATA BACK TO UI)
+    RESPONSE
     ==================================================
     */
     return res.status(200).json({
