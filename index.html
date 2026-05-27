@@ -1,30 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Quant Dashboard PRO</title>
+<style>
+*{
+box-sizing:border-box;
+margin:0;
+padding:0;
+}
+body{
+background:#020617;
+color:white;
+font-family:Arial,sans-serif;
+padding:20px;
+}
+.container{
+max-width:1100px;
+margin:auto;
+}
+.card{
+background:#0f172a;
+padding:20px;
+border-radius:16px;
+margin-bottom:20px;
+border:1px solid #1e293b;
+}
+.grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:12px;
+}
+@media(max-width:768px){
+.grid{
+grid-template-columns:1fr;
+}
+.signal{
+font-size:32px;
+}
+}
+label{
+display:block;
+margin-bottom:8px;
+font-weight:bold;
+}
+input,
+select{
+width:100%;
+padding:12px;
+margin-bottom:14px;
+border:none;
+border-radius:12px;
+background:#1e293b;
+color:white;
+font-size:16px;
+outline:none;
+}
+input:focus,
+select:focus{
+border:1px solid #06b6d4;
+}
+button{
+padding:14px 20px;
+background:#06b6d4;
+border:none;
+border-radius:12px;
+font-weight:bold;
+color:white;
+cursor:pointer;
+width:100%;
+font-size:16px;
+transition:0.2s;
+margin-top:8px;
+}
+button:hover{
+opacity:0.9;
+}
+.metric{
+margin-bottom:14px;
+font-size:18px;
+}
+.signal{
+font-size:42px;
+font-weight:900;
+margin-bottom:12px;
+}
+.buy{
+color:#22c55e;
+}
+.sell{
+color:#ef4444;
+}
+.hold{
+color:#facc15;
+}
+.log{
+background:black;
+padding:12px;
+height:240px;
+overflow:auto;
+font-family:monospace;
+color:#22c55e;
+border-radius:12px;
+border:1px solid #1e293b;
+}
+.loading{
+opacity:0.7;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+<div class="card">
+<h1 style="margin-bottom:20px;">Quant Dashboard PRO</h1>
+<label>Instrument ID</label>
+<input id="instrumentInput" value="686" />
+
+<div class="grid">
+<div>
+<label>Currently Holding?</label>
+<select id="holding">
+<option value="no">NO</option>
+<option value="yes">YES</option>
+</select>
+</div>
+<div>
+<label>Leverage</label>
+<input id="leverage" type="number" value="1" min="1" />
+</div>
+</div>
+
+<div class="grid">
+<div>
+<label>Entry Price</label>
+<input id="entryPrice" type="number" />
+</div>
+<div>
+<label>Amount Invested</label>
+<input id="amountInvested" type="number" value="1000" />
+</div>
+</div>
+
+<div class="grid">
+<div>
+<label>Current Stop Loss</label>
+<input id="existingSL" type="number" />
+</div>
+<div>
+<label>Current Take Profit</label>
+<input id="existingTP" type="number" />
+</div>
+</div>
+
+<button onclick="savePosition()">Save Position</button>
+<button id="runBtn" onclick="runAnalysis(false)">Run Analysis</button>
+</div>
+
+<div class="card">
+<h2 style="margin-bottom:16px;">Primary Signal</h2>
+<div id="signal" class="signal hold">WAITING...</div>
+<div class="metric">Confidence: <span id="confidence">--</span></div>
+<div class="metric">Trade Duration: <span id="duration">--</span></div>
+</div>
+
+<div class="card">
+<h2 style="margin-bottom:16px;">Trend Analysis</h2>
+<div class="metric">Short Trend: <span id="shortTrend">--</span></div>
+<div class="metric">Mid Trend: <span id="midTrend">--</span></div>
+<div class="metric">Long Trend: <span id="longTrend">--</span></div>
+</div>
+
+<div class="card">
+<h2 style="margin-bottom:16px;">Technical Indicators</h2>
+<div class="metric">Price: <span id="price">--</span></div>
+<div class="metric">EMA20: <span id="ema20">--</span></div>
+<div class="metric">EMA50: <span id="ema50">--</span></div>
+<div class="metric">EMA100: <span id="ema100">--</span></div>
+<div class="metric">RSI: <span id="rsi">--</span></div>
+<div class="metric">ATR: <span id="atr">--</span></div>
+<div class="metric">Spread: <span id="spread">--</span></div>
+</div>
+
+<div class="card">
+<h2 style="margin-bottom:16px;">Trade Plan</h2>
+<div class="metric">Entry: <span id="entry">--</span></div>
+<div class="metric">Stop Loss: <span id="sl">--</span></div>
+<div class="metric">Take Profit: <span id="tp">--</span></div>
+<div class="metric">Risk Score: <span id="risk">--</span></div>
+</div>
+
+<div class="card">
+<h2 style="margin-bottom:16px;">Position Analysis</h2>
+<div class="metric">PnL: <span id="pnl">--</span></div>
+<div class="metric">Exposure: <span id="exposure">--</span></div>
+<div class="metric">Advice: <span id="positionAdvice">--</span></div>
+</div>
+
+<div class="card">
+<h2 style="margin-bottom:16px;">System Log</h2>
+<div id="logBox" class="log"></div>
+</div>
+</div>
+
 <script>
 const logBox = document.getElementById("logBox");
 const runBtn = document.getElementById("runBtn");
 let isRunning = false;
 
-/*
-==================================================
-LOGGING
-==================================================
-*/
 function log(msg){
   const time = new Date().toLocaleTimeString();
   const line = document.createElement("div");
   line.textContent = `[${time}] ${msg}`;
   logBox.appendChild(line);
-
   if(logBox.children.length > 100){
     logBox.removeChild(logBox.firstChild);
   }
   logBox.scrollTop = logBox.scrollHeight;
 }
 
-/*
-==================================================
-SAFE UI UPDATE
-==================================================
-*/
 function setValue(id, value){
   const el = document.getElementById(id);
   if(el){
@@ -32,25 +227,14 @@ function setValue(id, value){
   }
 }
 
-/*
-==================================================
-SAVE POSITION
-==================================================
-*/
 async function savePosition(){
   log("Saving position...");
   await runAnalysis(true);
   log("Position saved");
 }
 
-/*
-==================================================
-RUN ANALYSIS
-==================================================
-*/
 async function runAnalysis(updatePosition=false){
   if(isRunning) return;
-
   try {
     isRunning = true;
     runBtn.disabled = true;
@@ -77,12 +261,6 @@ async function runAnalysis(updatePosition=false){
       throw new Error(data.error);
     }
 
-    /*
-    ========================================
-    UPDATE INPUT FIELDS (FIXES PERSISTENCE ON REFRESH)
-    ========================================
-    */
-    // If we're just loading or doing a routine check, populate the boxes from the database
     if (!updatePosition) {
       document.getElementById("holding").value = data.holding ? "yes" : "no";
       document.getElementById("leverage").value = data.leverage || 1;
@@ -92,20 +270,10 @@ async function runAnalysis(updatePosition=false){
       document.getElementById("existingTP").value = data.existingTP > 0 ? data.existingTP : "";
     }
 
-    /*
-    ========================================
-    SIGNAL VISUALS
-    ========================================
-    */
     const signalElement = document.getElementById("signal");
     signalElement.innerText = data.signal || "HOLD";
     signalElement.className = `signal ${(data.signal || "hold").toLowerCase()}`;
 
-    /*
-    ========================================
-    UPDATE DISPLAY VALUES
-    ========================================
-    */
     setValue("confidence", data.confidence);
     setValue("duration", data.duration);
     setValue("shortTrend", data.shortTrend);
@@ -127,7 +295,6 @@ async function runAnalysis(updatePosition=false){
     setValue("positionAdvice", data.positionAdvice);
 
     log("Analysis completed");
-
   } catch(err) {
     console.error(err);
     log(`ERROR: ${err.message}`);
@@ -138,11 +305,7 @@ async function runAnalysis(updatePosition=false){
   }
 }
 
-/*
-==================================================
-INITIAL LOAD & BACKGROUND INTERVAL
-==================================================
-*/
+// Initial script execution triggering
 runAnalysis(false);
 
 const REFRESH_INTERVAL = 1000 * 60 * 15;
@@ -150,3 +313,5 @@ setInterval(() => {
   runAnalysis(false);
 }, REFRESH_INTERVAL);
 </script>
+</body>
+</html>
