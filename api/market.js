@@ -7,30 +7,16 @@ REDIS
 */
 
 const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_KV_REST_API_URL,
-  token: process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN,
+
+url:
+process.env.UPSTASH_REDIS_REST_KV_REST_API_URL ||
+process.env.UPSTASH_REDIS_REST_URL,
+
+token:
+process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN ||
+process.env.UPSTASH_REDIS_REST_TOKEN
+
 });
-
-/*
-==================================================
-VALIDATE ENV
-==================================================
-*/
-
-const REQUIRED_ENV = [
-  "UPSTASH_REDIS_REST_KV_REST_API_URL",
-  "UPSTASH_REDIS_REST_KV_REST_API_TOKEN",
-  "ETORO_API_KEY",
-  "ETORO_USER_KEY",
-  "TELEGRAM_BOT_TOKEN",
-  "TELEGRAM_CHAT_ID",
-];
-
-for (const key of REQUIRED_ENV) {
-  if (!process.env[key]) {
-    throw new Error(`Missing env variable: ${key}`);
-  }
-}
 
 /*
 ==================================================
@@ -39,26 +25,39 @@ FETCH WITH TIMEOUT
 */
 
 async function fetchWithTimeout(
-  url,
-  options = {},
-  timeout = 15000
-) {
-  const controller = new AbortController();
+url,
+options = {},
+timeout = 15000
+){
 
-  const id = setTimeout(() => {
-    controller.abort();
-  }, timeout);
+const controller =
+new AbortController();
 
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
+const id =
+setTimeout(() => {
 
-    return response;
-  } finally {
-    clearTimeout(id);
-  }
+controller.abort();
+
+}, timeout);
+
+try{
+
+const response =
+await fetch(url,{
+
+...options,
+
+signal:
+controller.signal
+
+});
+
+return response;
+
+}finally{
+
+clearTimeout(id);
+}
 }
 
 /*
@@ -67,61 +66,114 @@ EMA
 ==================================================
 */
 
-function EMA(data, period) {
-  const k = 2 / (period + 1);
+function EMA(data,period){
 
-  let ema = data[0];
+if(data.length===0){
+return 0;
+}
 
-  for (let i = 1; i < data.length; i++) {
-    ema = data[i] * k + ema * (1 - k);
-  }
+const k =
+2/(period+1);
 
-  return ema;
+let ema =
+data[0];
+
+for(
+let i=1;
+i<data.length;
+i++
+){
+
+ema =
+data[i]*k +
+ema*(1-k);
+}
+
+return ema;
 }
 
 /*
 ==================================================
-RSI
+RSI (WILDER)
 ==================================================
 */
 
-function RSI(closes, period = 14) {
-  let gains = 0;
-  let losses = 0;
+function RSI(
+closes,
+period=14
+){
 
-  for (let i = 1; i <= period; i++) {
-    const diff = closes[i] - closes[i - 1];
+if(closes.length < period+1){
+return 50;
+}
 
-    if (diff >= 0) {
-      gains += diff;
-    } else {
-      losses += Math.abs(diff);
-    }
-  }
+let gains = 0;
+let losses = 0;
 
-  let avgGain = gains / period;
-  let avgLoss = losses / period;
+for(
+let i=1;
+i<=period;
+i++
+){
 
-  for (let i = period + 1; i < closes.length; i++) {
-    const diff = closes[i] - closes[i - 1];
+const diff =
+closes[i]-closes[i-1];
 
-    const gain = diff > 0 ? diff : 0;
-    const loss = diff < 0 ? Math.abs(diff) : 0;
+if(diff>=0){
 
-    avgGain =
-      (avgGain * (period - 1) + gain) / period;
+gains += diff;
 
-    avgLoss =
-      (avgLoss * (period - 1) + loss) / period;
-  }
+}else{
 
-  if (avgLoss === 0) {
-    return 100;
-  }
+losses += Math.abs(diff);
+}
+}
 
-  const rs = avgGain / avgLoss;
+let avgGain =
+gains/period;
 
-  return 100 - 100 / (1 + rs);
+let avgLoss =
+losses/period;
+
+for(
+let i=period+1;
+i<closes.length;
+i++
+){
+
+const diff =
+closes[i]-closes[i-1];
+
+const gain =
+diff>0 ? diff : 0;
+
+const loss =
+diff<0 ? Math.abs(diff) : 0;
+
+avgGain =
+(
+avgGain*(period-1)
++ gain
+)/period;
+
+avgLoss =
+(
+avgLoss*(period-1)
++ loss
+)/period;
+}
+
+if(avgLoss===0){
+return 100;
+}
+
+const rs =
+avgGain/avgLoss;
+
+return 100 -
+(
+100/(1+rs)
+);
 }
 
 /*
@@ -130,605 +182,754 @@ ATR
 ==================================================
 */
 
-function ATR(candles, period = 14) {
-  const trs = [];
+function ATR(
+candles,
+period=14
+){
 
-  for (let i = 1; i < candles.length; i++) {
-    const high = parseFloat(candles[i].high);
+if(candles.length < period+1){
+return 0;
+}
 
-    const low = parseFloat(candles[i].low);
+const trs = [];
 
-    const prevClose = parseFloat(
-      candles[i - 1].close
-    );
+for(
+let i=1;
+i<candles.length;
+i++
+){
 
-    const tr = Math.max(
-      high - low,
-      Math.abs(high - prevClose),
-      Math.abs(low - prevClose)
-    );
+const high =
+parseFloat(candles[i].high);
 
-    trs.push(tr);
-  }
+const low =
+parseFloat(candles[i].low);
 
-  const recent = trs.slice(-period);
+const prevClose =
+parseFloat(candles[i-1].close);
 
-  return (
-    recent.reduce((a, b) => a + b, 0) / period
-  );
+const tr =
+Math.max(
+high-low,
+Math.abs(high-prevClose),
+Math.abs(low-prevClose)
+);
+
+trs.push(tr);
+}
+
+const recent =
+trs.slice(-period);
+
+return recent.reduce(
+(a,b)=>a+b,
+0
+)/period;
 }
 
 /*
 ==================================================
-HANDLER
+MAIN HANDLER
 ==================================================
 */
 
 export default async function handler(
-  req,
-  res
-) {
-  try {
-    const API_KEY =
-      process.env.ETORO_API_KEY;
-
-    const USER_KEY =
-      process.env.ETORO_USER_KEY;
-
-    const BOT_TOKEN =
-      process.env.TELEGRAM_BOT_TOKEN;
-
-    const CHAT_ID =
-      process.env.TELEGRAM_CHAT_ID;
-
-    const BASE_URL =
-      "https://public-api.etoro.com/api/v1";
-
-    /*
-    ==============================================
-    INPUTS
-    ==============================================
-    */
-
-    const instrumentId =
-      req.query.instrumentId || "686";
-
-    const holding =
-      req.query.holding || "no";
-
-    const leverage = parseFloat(
-      req.query.leverage || 1
-    );
-
-    const entryPrice = parseFloat(
-      req.query.entryPrice || 0
-    );
-
-    const existingSL = parseFloat(
-      req.query.existingSL || 0
-    );
-
-    const existingTP = parseFloat(
-      req.query.existingTP || 0
-    );
-
-    const amountInvested = parseFloat(
-      req.query.amountInvested || 1000
-    );
-
-    const updatePosition =
-      req.query.updatePosition === "true";
-
-    /*
-    ==============================================
-    REDIS STATE
-    ==============================================
-    */
-
-    let state = await redis.get(
-      `position-${instrumentId}`
-    );
-
-    if (!state) {
-      state = {
-        holding: false,
-        entryPrice: 0,
-        leverage: 1,
-        amountInvested: 1000,
-        lastSignal: "NONE",
-      };
-    }
-
-    /*
-    ==============================================
-    MANUAL POSITION UPDATE
-    ==============================================
-    */
-
-    if (updatePosition) {
-      if (holding === "yes") {
-        state.holding = true;
-
-        state.entryPrice = entryPrice;
-
-        state.leverage = leverage;
-
-        state.amountInvested =
-          amountInvested;
-      }
-
-      if (holding === "no") {
-        state.holding = false;
-
-        state.entryPrice = 0;
-      }
-    }
-
-    /*
-    ==============================================
-    FETCH LIVE RATES
-    ==============================================
-    */
-
-    async function fetchRates() {
-      const response =
-        await fetchWithTimeout(
-          `${BASE_URL}/market-data/instruments/rates?instrumentIds=${instrumentId}`,
-          {
-            headers: {
-              "x-api-key": API_KEY,
-              "x-user-key": USER_KEY,
-              "x-request-id":
-                crypto.randomUUID(),
-            },
-          }
-        );
-
-      if (!response.ok) {
-        throw new Error(
-          `Rate API failed: ${response.status}`
-        );
-      }
-
-      const data = await response.json();
-
-      if (
-        !data.rates ||
-        data.rates.length === 0
-      ) {
-        throw new Error(
-          "No rates returned"
-        );
-      }
-
-      return data.rates[0];
-    }
-
-    /*
-    ==============================================
-    FETCH CANDLES
-    ==============================================
-    */
-
-    async function fetchCandles() {
-      const response =
-        await fetchWithTimeout(
-          `${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/OneDay/200`,
-          {
-            headers: {
-              "x-api-key": API_KEY,
-              "x-user-key": USER_KEY,
-              "x-request-id":
-                crypto.randomUUID(),
-            },
-          }
-        );
-
-      if (!response.ok) {
-        throw new Error(
-          `Candles API failed: ${response.status}`
-        );
-      }
-
-      const data = await response.json();
-
-      if (
-        !data.candles ||
-        data.candles.length === 0
-      ) {
-        throw new Error(
-          "No candle wrapper"
-        );
-      }
-
-      if (!data.candles[0].candles) {
-        throw new Error(
-          "No nested candles"
-        );
-      }
-
-      return data.candles[0].candles;
-    }
-
-    /*
-    ==============================================
-    MARKET DATA
-    ==============================================
-    */
-
-    const live = await fetchRates();
-
-    const candles =
-      await fetchCandles();
-
-    candles.sort(
-      (a, b) =>
-        new Date(a.fromDate) -
-        new Date(b.fromDate)
-    );
-
-    const closes = candles.map((c) =>
-      parseFloat(c.close)
-    );
-
-    if (closes.length < 100) {
-      throw new Error(
-        "Not enough candle history"
-      );
-    }
-
-    /*
-    ==============================================
-    INDICATORS
-    ==============================================
-    */
-
-    const ema20 = EMA(
-      closes.slice(-20),
-      20
-    );
-
-    const ema50 = EMA(
-      closes.slice(-50),
-      50
-    );
-
-    const ema100 = EMA(
-      closes.slice(-100),
-      100
-    );
-
-    const rsi = RSI(closes);
-
-    const atr = ATR(candles);
-
-    const currentPrice = parseFloat(
-      live.lastExecution ||
-      live.ask ||
-      live.bid
-    );
-
-    const ask = parseFloat(live.ask);
-
-    const bid = parseFloat(live.bid);
-
-    const spread = ask - bid;
-
-    /*
-    ==============================================
-    TRENDS
-    ==============================================
-    */
-
-    const shortTrend =
-      currentPrice > ema20
-        ? "BULLISH"
-        : "BEARISH";
-
-    const midTrend =
-      ema20 > ema50
-        ? "BULLISH"
-        : "BEARISH";
-
-    const longTrend =
-      ema50 > ema100
-        ? "BULLISH"
-        : "BEARISH";
-
-    /*
-    ==============================================
-    SIGNAL ENGINE
-    ==============================================
-    */
-
-    let signal = "HOLD";
-
-    let confidence = 50;
-
-    if (
-      shortTrend === "BULLISH" &&
-      midTrend === "BULLISH" &&
-      longTrend === "BULLISH" &&
-      rsi > 50 &&
-      rsi < 68
-    ) {
-      signal = "BUY";
-
-      confidence += 30;
-    }
-
-    if (
-      shortTrend === "BEARISH" &&
-      midTrend === "BEARISH" &&
-      longTrend === "BEARISH" &&
-      rsi < 40
-    ) {
-      signal = "SELL";
-
-      confidence += 30;
-    }
-
-    /*
-    ==============================================
-    DURATION
-    ==============================================
-    */
-
-    let duration = "INTRADAY";
-
-    if (
-      midTrend === "BULLISH" &&
-      longTrend === "BULLISH"
-    ) {
-      duration = "SWING";
-    }
-
-    if (
-      Math.abs(ema20 - ema100) > 600
-    ) {
-      duration = "POSITION";
-    }
-
-    /*
-    ==============================================
-    SL / TP
-    ==============================================
-    */
-
-    const stopLoss =
-      signal === "BUY"
-        ? currentPrice - atr * 1.5
-        : currentPrice + atr * 1.5;
-
-    const takeProfit =
-      signal === "BUY"
-        ? currentPrice + atr * 3
-        : currentPrice - atr * 3;
-
-    /*
-    ==============================================
-    RISK
-    ==============================================
-    */
-
-    let riskScore = Math.round(
-      40 + leverage * 5 + spread * 0.01
-    );
-
-    riskScore = Math.min(
-      100,
-      riskScore
-    );
-
-    /*
-    ==============================================
-    POSITION ANALYSIS
-    ==============================================
-    */
-
-    let pnl = "--";
-
-    let exposure = "--";
-
-    let positionAdvice =
-      "NO OPEN POSITION";
-
-    if (
-      state.holding &&
-      state.entryPrice > 0
-    ) {
-      const percentMove =
-        (currentPrice -
-          state.entryPrice) /
-        state.entryPrice;
-
-      const pnlValue =
-        state.amountInvested *
-        percentMove *
-        state.leverage;
-
-      pnl = pnlValue.toFixed(2);
-
-      exposure = (
-        state.amountInvested *
-        state.leverage
-      ).toFixed(2);
-
-      positionAdvice =
-        signal === "SELL"
-          ? "CONSIDER EXIT"
-          : "HOLD POSITION";
-
-      if (
-        existingTP > 0 &&
-        currentPrice >= existingTP
-      ) {
-        positionAdvice =
-          "TAKE PROFIT HIT";
-      }
-
-      if (
-        existingSL > 0 &&
-        currentPrice <= existingSL
-      ) {
-        positionAdvice =
-          "STOP LOSS BREACHED";
-      }
-    }
-
-    /*
-    ==============================================
-    TELEGRAM
-    ==============================================
-    */
-
-    let shouldNotify = false;
-
-    if (
-      signal !== state.lastSignal
-    ) {
-      if (
-        !state.holding &&
-        signal === "BUY"
-      ) {
-        shouldNotify = true;
-      }
-
-      if (
-        state.holding &&
-        signal === "SELL"
-      ) {
-        shouldNotify = true;
-      }
-    }
-
-    if (shouldNotify) {
-      const message = `
-${signal} SIGNAL
-
-Instrument: ${instrumentId}
-
-Price: ${currentPrice.toFixed(2)}
-
-Confidence: ${confidence}%
-
-RSI: ${rsi.toFixed(2)}
-
-Duration: ${duration}
-
-SL: ${stopLoss.toFixed(2)}
-
-TP: ${takeProfit.toFixed(2)}
+req,
+res
+){
+
+try{
+
+/*
+==================================================
+ENV
+==================================================
+*/
+
+const API_KEY =
+process.env.ETORO_API_KEY;
+
+const USER_KEY =
+process.env.ETORO_USER_KEY;
+
+const BOT_TOKEN =
+process.env.TELEGRAM_BOT_TOKEN;
+
+const CHAT_ID =
+process.env.TELEGRAM_CHAT_ID;
+
+const BASE_URL =
+"https://public-api.etoro.com/api/v1";
+
+/*
+==================================================
+INPUTS
+==================================================
+*/
+
+const instrumentId =
+req.query.instrumentId || "686";
+
+const holding =
+req.query.holding || "no";
+
+const leverage =
+parseFloat(
+req.query.leverage || 1
+);
+
+const entryPrice =
+parseFloat(
+req.query.entryPrice || 0
+);
+
+const existingSL =
+parseFloat(
+req.query.existingSL || 0
+);
+
+const existingTP =
+parseFloat(
+req.query.existingTP || 0
+);
+
+const amountInvested =
+parseFloat(
+req.query.amountInvested || 1000
+);
+
+const updatePosition =
+req.query.updatePosition === "true";
+
+/*
+==================================================
+LOAD STATE
+==================================================
+*/
+
+let state =
+await redis.get(
+`position-${instrumentId}`
+);
+
+if(!state){
+
+state = {
+
+holding:false,
+
+entryPrice:0,
+
+leverage:1,
+
+amountInvested:1000,
+
+lastSignal:"NONE"
+
+};
+}
+
+/*
+==================================================
+UPDATE POSITION
+==================================================
+*/
+
+if(updatePosition){
+
+if(holding==="yes"){
+
+state.holding = true;
+
+state.entryPrice =
+entryPrice;
+
+state.leverage =
+leverage;
+
+state.amountInvested =
+amountInvested;
+
+}else{
+
+state.holding = false;
+
+state.entryPrice = 0;
+
+state.leverage = 1;
+
+state.amountInvested = 0;
+}
+
+await redis.set(
+`position-${instrumentId}`,
+state
+);
+}
+
+/*
+==================================================
+FETCH LIVE RATES
+==================================================
+*/
+
+const liveResponse =
+await fetchWithTimeout(
+
+`${BASE_URL}/market-data/instruments/rates?instrumentIds=${instrumentId}`,
+
+{
+headers:{
+
+"x-api-key":
+API_KEY,
+
+"x-user-key":
+USER_KEY,
+
+"x-request-id":
+Date.now().toString()
+
+}
+}
+
+);
+
+if(!liveResponse.ok){
+
+throw new Error(
+`Rates API failed ${liveResponse.status}`
+);
+}
+
+const liveData =
+await liveResponse.json();
+
+if(
+!liveData.rates ||
+liveData.rates.length===0
+){
+
+throw new Error(
+"No rates returned"
+);
+}
+
+const live =
+liveData.rates[0];
+
+/*
+==================================================
+FETCH CANDLES
+==================================================
+*/
+
+const candleResponse =
+await fetchWithTimeout(
+
+`${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/OneDay/200`,
+
+{
+headers:{
+
+"x-api-key":
+API_KEY,
+
+"x-user-key":
+USER_KEY,
+
+"x-request-id":
+Date.now().toString()
+
+}
+}
+
+);
+
+if(!candleResponse.ok){
+
+throw new Error(
+`Candles API failed ${candleResponse.status}`
+);
+}
+
+const candleData =
+await candleResponse.json();
+
+if(
+!candleData.candles ||
+candleData.candles.length===0
+){
+
+throw new Error(
+"No candle wrapper returned"
+);
+}
+
+if(
+!candleData.candles[0].candles
+){
+
+throw new Error(
+"No nested candles array"
+);
+}
+
+const candles =
+candleData.candles[0].candles;
+
+/*
+==================================================
+SORT ASC
+==================================================
+*/
+
+candles.sort(
+
+(a,b)=>
+
+new Date(a.fromDate)
+-
+new Date(b.fromDate)
+
+);
+
+/*
+==================================================
+BUILD CLOSES
+==================================================
+*/
+
+const closes =
+candles.map(c =>
+parseFloat(c.close)
+);
+
+/*
+==================================================
+INDICATORS
+==================================================
+*/
+
+const ema20 =
+EMA(
+closes.slice(-20),
+20
+);
+
+const ema50 =
+EMA(
+closes.slice(-50),
+50
+);
+
+const ema100 =
+EMA(
+closes.slice(-100),
+100
+);
+
+const rsi =
+RSI(closes);
+
+const atr =
+ATR(candles);
+
+const currentPrice =
+parseFloat(
+live.lastExecution
+);
+
+const ask =
+parseFloat(live.ask);
+
+const bid =
+parseFloat(live.bid);
+
+const spread =
+ask-bid;
+
+/*
+==================================================
+TREND
+==================================================
+*/
+
+const shortTrend =
+currentPrice > ema20
+? "BULLISH"
+: "BEARISH";
+
+const midTrend =
+ema20 > ema50
+? "BULLISH"
+: "BEARISH";
+
+const longTrend =
+ema50 > ema100
+? "BULLISH"
+: "BEARISH";
+
+/*
+==================================================
+SIGNAL ENGINE
+==================================================
+*/
+
+let signal =
+"HOLD";
+
+let confidence =
+50;
+
+if(
+
+shortTrend==="BULLISH" &&
+midTrend==="BULLISH" &&
+longTrend==="BULLISH" &&
+rsi>50 &&
+rsi<68
+
+){
+
+signal = "BUY";
+
+confidence += 30;
+}
+
+if(
+
+shortTrend==="BEARISH" &&
+midTrend==="BEARISH" &&
+longTrend==="BEARISH" &&
+rsi<40
+
+){
+
+signal = "SELL";
+
+confidence += 30;
+}
+
+/*
+==================================================
+DURATION
+==================================================
+*/
+
+let duration =
+"INTRADAY";
+
+if(
+
+midTrend==="BULLISH" &&
+longTrend==="BULLISH"
+
+){
+
+duration =
+"SWING";
+}
+
+if(
+Math.abs(ema20-ema100)>600
+){
+
+duration =
+"POSITION";
+}
+
+/*
+==================================================
+SL / TP
+==================================================
+*/
+
+const stopLoss =
+signal==="BUY"
+? currentPrice-(atr*1.5)
+: currentPrice+(atr*1.5);
+
+const takeProfit =
+signal==="BUY"
+? currentPrice+(atr*3)
+: currentPrice-(atr*3);
+
+/*
+==================================================
+RISK
+==================================================
+*/
+
+let riskScore =
+Math.round(
+40 +
+(leverage*5) +
+(spread*0.01)
+);
+
+riskScore =
+Math.min(
+100,
+riskScore
+);
+
+/*
+==================================================
+POSITION ANALYSIS
+==================================================
+*/
+
+let pnl = "--";
+
+let exposure = "--";
+
+let positionAdvice =
+"NO OPEN POSITION";
+
+if(
+state.holding &&
+state.entryPrice>0
+){
+
+const percentMove =
+(
+currentPrice -
+state.entryPrice
+)
+/
+state.entryPrice;
+
+const pnlValue =
+state.amountInvested *
+percentMove *
+state.leverage;
+
+pnl =
+pnlValue.toFixed(2);
+
+exposure =
+(
+state.amountInvested *
+state.leverage
+).toFixed(2);
+
+positionAdvice =
+signal==="SELL"
+? "CONSIDER EXIT"
+: "HOLD POSITION";
+
+if(
+existingTP>0 &&
+currentPrice>=existingTP
+){
+
+positionAdvice =
+"TAKE PROFIT HIT";
+}
+
+if(
+existingSL>0 &&
+currentPrice<=existingSL
+){
+
+positionAdvice =
+"STOP LOSS BREACHED";
+}
+}
+
+/*
+==================================================
+TELEGRAM
+==================================================
+*/
+
+let shouldNotify =
+false;
+
+if(
+signal !== state.lastSignal
+){
+
+if(
+!state.holding &&
+signal==="BUY"
+){
+
+shouldNotify = true;
+}
+
+if(
+state.holding &&
+signal==="SELL"
+){
+
+shouldNotify = true;
+}
+}
+
+if(shouldNotify){
+
+const message =
+
+`${signal} SIGNAL
+
+Instrument:
+${instrumentId}
+
+Price:
+${currentPrice.toFixed(2)}
+
+Confidence:
+${confidence}%
+
+RSI:
+${rsi.toFixed(2)}
+
+EMA20:
+${ema20.toFixed(2)}
+
+EMA50:
+${ema50.toFixed(2)}
+
+EMA100:
+${ema100.toFixed(2)}
+
+Duration:
+${duration}
+
+SL:
+${stopLoss.toFixed(2)}
+
+TP:
+${takeProfit.toFixed(2)}
+
+PnL:
+${pnl}
 `;
 
-      try {
-        await fetchWithTimeout(
-          `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
-          {
-            method: "POST",
+await fetchWithTimeout(
 
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
+`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
 
-            body: JSON.stringify({
-              chat_id: CHAT_ID,
-              text: message,
-            }),
-          }
-        );
+{
+method:"POST",
 
-        state.lastSignal = signal;
-      } catch (err) {
-        console.log(
-          "Telegram failed",
-          err.message
-        );
-      }
-    }
+headers:{
+"Content-Type":
+"application/json"
+},
 
-    /*
-    ==============================================
-    SAVE STATE
-    ==============================================
-    */
+body:JSON.stringify({
 
-    await redis.set(
-      `position-${instrumentId}`,
-      state
-    );
+chat_id:
+CHAT_ID,
 
-    /*
-    ==============================================
-    RESPONSE
-    ==============================================
-    */
+text:
+message
 
-    return res.status(200).json({
-      signal,
+})
+}
 
-      price:
-        currentPrice.toFixed(2),
+);
 
-      ask: ask.toFixed(2),
+state.lastSignal =
+signal;
 
-      bid: bid.toFixed(2),
+await redis.set(
+`position-${instrumentId}`,
+state
+);
+}
 
-      spread:
-        spread.toFixed(2),
+/*
+==================================================
+RESPONSE
+==================================================
+*/
 
-      ema20:
-        ema20.toFixed(2),
+return res.status(200).json({
 
-      ema50:
-        ema50.toFixed(2),
+signal,
 
-      ema100:
-        ema100.toFixed(2),
+price:
+currentPrice.toFixed(2),
 
-      rsi: rsi.toFixed(2),
+ask:
+ask.toFixed(2),
 
-      atr: atr.toFixed(2),
+bid:
+bid.toFixed(2),
 
-      confidence:
-        confidence + "%",
+spread:
+spread.toFixed(2),
 
-      duration,
+ema20:
+ema20.toFixed(2),
 
-      riskScore:
-        riskScore + "/100",
+ema50:
+ema50.toFixed(2),
 
-      entry:
-        currentPrice.toFixed(2),
+ema100:
+ema100.toFixed(2),
 
-      stopLoss:
-        stopLoss.toFixed(2),
+rsi:
+rsi.toFixed(2),
 
-      takeProfit:
-        takeProfit.toFixed(2),
+atr:
+atr.toFixed(2),
 
-      shortTrend,
+confidence:
+confidence+"%",
 
-      midTrend,
+duration,
 
-      longTrend,
+riskScore:
+riskScore+"/100",
 
-      pnl,
+entry:
+currentPrice.toFixed(2),
 
-      exposure,
+stopLoss:
+stopLoss.toFixed(2),
 
-      positionAdvice,
+takeProfit:
+takeProfit.toFixed(2),
 
-      holding:
-        state.holding,
-    });
-  } catch (err) {
-    console.error(err);
+shortTrend,
 
-    return res.status(500).json({
-      success: false,
-      error: err.message,
-    });
-  }
+midTrend,
+
+longTrend,
+
+holding:
+state.holding,
+
+entryPrice:
+state.entryPrice,
+
+leverage:
+state.leverage,
+
+pnl,
+
+exposure,
+
+positionAdvice
+
+});
+
+}catch(err){
+
+console.error(err);
+
+return res.status(500).json({
+
+success:false,
+
+error:
+err.message
+
+});
+}
 }
