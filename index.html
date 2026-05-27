@@ -1,18 +1,29 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
 
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8" />
+
+<meta
+name="viewport"
+content="width=device-width, initial-scale=1.0"
+/>
 
 <title>Quant Dashboard PRO</title>
 
 <style>
 
+*{
+box-sizing:border-box;
+margin:0;
+padding:0;
+}
+
 body{
 background:#020617;
 color:white;
-font-family:Arial;
+font-family:Arial,sans-serif;
 padding:20px;
 }
 
@@ -26,6 +37,7 @@ background:#0f172a;
 padding:20px;
 border-radius:16px;
 margin-bottom:20px;
+border:1px solid #1e293b;
 }
 
 .grid{
@@ -34,16 +46,39 @@ grid-template-columns:1fr 1fr;
 gap:12px;
 }
 
-input,select{
+@media(max-width:768px){
+
+.grid{
+grid-template-columns:1fr;
+}
+
+.signal{
+font-size:32px;
+}
+}
+
+label{
+display:block;
+margin-bottom:8px;
+font-weight:bold;
+}
+
+input,
+select{
 width:100%;
 padding:12px;
-margin-top:8px;
-margin-bottom:12px;
+margin-bottom:14px;
 border:none;
 border-radius:12px;
 background:#1e293b;
 color:white;
 font-size:16px;
+outline:none;
+}
+
+input:focus,
+select:focus{
+border:1px solid #06b6d4;
 }
 
 button{
@@ -55,30 +90,55 @@ font-weight:bold;
 color:white;
 cursor:pointer;
 width:100%;
+font-size:16px;
+transition:0.2s;
+}
+
+button:hover{
+opacity:0.9;
+}
+
+button:disabled{
+opacity:0.5;
+cursor:not-allowed;
 }
 
 .metric{
-margin-bottom:12px;
+margin-bottom:14px;
 font-size:18px;
 }
 
 .signal{
 font-size:42px;
 font-weight:900;
+margin-bottom:12px;
 }
 
-.buy{color:#22c55e;}
-.sell{color:#ef4444;}
-.hold{color:#facc15;}
+.buy{
+color:#22c55e;
+}
+
+.sell{
+color:#ef4444;
+}
+
+.hold{
+color:#facc15;
+}
 
 .log{
 background:black;
 padding:12px;
-height:220px;
+height:240px;
 overflow:auto;
 font-family:monospace;
 color:#22c55e;
 border-radius:12px;
+border:1px solid #1e293b;
+}
+
+.loading{
+opacity:0.6;
 }
 
 </style>
@@ -91,24 +151,48 @@ border-radius:12px;
 
 <div class="card">
 
-<h1>Quant Dashboard PRO</h1>
+<h1 style="margin-bottom:20px;">
+Quant Dashboard PRO
+</h1>
 
 <label>Instrument ID</label>
-<input id="instrumentInput" value="686">
+
+<input
+id="instrumentInput"
+value="686"
+/>
 
 <div class="grid">
 
 <div>
+
 <label>Currently Holding?</label>
+
 <select id="holding">
-<option value="no">NO</option>
-<option value="yes">YES</option>
+
+<option value="no">
+NO
+</option>
+
+<option value="yes">
+YES
+</option>
+
 </select>
+
 </div>
 
 <div>
+
 <label>Leverage</label>
-<input id="leverage" type="number" value="1">
+
+<input
+id="leverage"
+type="number"
+value="1"
+min="1"
+/>
+
 </div>
 
 </div>
@@ -116,49 +200,83 @@ border-radius:12px;
 <div class="grid">
 
 <div>
+
 <label>Entry Price</label>
-<input id="entryPrice" type="number">
+
+<input
+id="entryPrice"
+type="number"
+/>
+
 </div>
 
 <div>
+
 <label>Current Stop Loss</label>
-<input id="existingSL" type="number">
+
+<input
+id="existingSL"
+type="number"
+/>
+
 </div>
 
 </div>
 
 <label>Current Take Profit</label>
-<input id="existingTP" type="number">
 
-<button onclick="runAnalysis()">
+<input
+id="existingTP"
+type="number"
+/>
+
+<button
+id="runBtn"
+onclick="runAnalysis()"
+>
+
 Run Analysis
+
 </button>
 
 </div>
 
 <div class="card">
 
-<h2>Primary Signal</h2>
+<h2 style="margin-bottom:16px;">
+Primary Signal
+</h2>
 
-<div id="signal" class="signal hold">
+<div
+id="signal"
+class="signal hold"
+>
+
 WAITING...
+
 </div>
 
 <div class="metric">
+
 Confidence:
 <span id="confidence">--</span>
+
 </div>
 
 <div class="metric">
+
 Trade Duration:
 <span id="duration">--</span>
+
 </div>
 
 </div>
 
 <div class="card">
 
-<h2>Trend Analysis</h2>
+<h2 style="margin-bottom:16px;">
+Trend Analysis
+</h2>
 
 <div class="metric">
 Short Trend:
@@ -179,7 +297,9 @@ Long Trend:
 
 <div class="card">
 
-<h2>Technical Indicators</h2>
+<h2 style="margin-bottom:16px;">
+Technical Indicators
+</h2>
 
 <div class="metric">
 Price:
@@ -220,7 +340,9 @@ Spread:
 
 <div class="card">
 
-<h2>Trade Plan</h2>
+<h2 style="margin-bottom:16px;">
+Trade Plan
+</h2>
 
 <div class="metric">
 Entry:
@@ -246,7 +368,9 @@ Risk Score:
 
 <div class="card">
 
-<h2>Position Analysis</h2>
+<h2 style="margin-bottom:16px;">
+Position Analysis
+</h2>
 
 <div class="metric">
 PnL:
@@ -267,9 +391,14 @@ Advice:
 
 <div class="card">
 
-<h2>System Log</h2>
+<h2 style="margin-bottom:16px;">
+System Log
+</h2>
 
-<div id="logBox" class="log"></div>
+<div
+id="logBox"
+class="log"
+></div>
 
 </div>
 
@@ -280,137 +409,308 @@ Advice:
 const logBox =
 document.getElementById("logBox");
 
+const runBtn =
+document.getElementById("runBtn");
+
+let isRunning = false;
+
+/*
+==================================================
+SAFE LOGGING
+==================================================
+*/
+
 function log(msg){
 
 const time =
 new Date().toLocaleTimeString();
 
-logBox.innerHTML +=
-`<div>[${time}] ${msg}</div>`;
+const line =
+document.createElement("div");
+
+line.textContent =
+`[${time}] ${msg}`;
+
+logBox.appendChild(line);
+
+if(logBox.children.length > 100){
+
+logBox.removeChild(
+logBox.firstChild
+);
+}
 
 logBox.scrollTop =
 logBox.scrollHeight;
 }
 
+/*
+==================================================
+UPDATE UI
+==================================================
+*/
+
+function setValue(id,value){
+
+document.getElementById(id)
+.innerText = value ?? "--";
+}
+
+/*
+==================================================
+RUN ANALYSIS
+==================================================
+*/
+
 async function runAnalysis(){
 
+if(isRunning){
+
+log("Analysis already running...");
+return;
+}
+
 try{
+
+isRunning = true;
+
+runBtn.disabled = true;
+
+document.body.classList.add(
+"loading"
+);
 
 log("Running analysis...");
 
 const instrumentId =
-document.getElementById("instrumentInput").value;
+encodeURIComponent(
+document.getElementById(
+"instrumentInput"
+).value
+);
 
 const holding =
-document.getElementById("holding").value;
+encodeURIComponent(
+document.getElementById(
+"holding"
+).value
+);
 
 const leverage =
-document.getElementById("leverage").value;
+encodeURIComponent(
+document.getElementById(
+"leverage"
+).value
+);
 
 const entryPrice =
-document.getElementById("entryPrice").value;
+encodeURIComponent(
+document.getElementById(
+"entryPrice"
+).value || 0
+);
 
 const existingSL =
-document.getElementById("existingSL").value;
+encodeURIComponent(
+document.getElementById(
+"existingSL"
+).value || 0
+);
 
 const existingTP =
-document.getElementById("existingTP").value;
+encodeURIComponent(
+document.getElementById(
+"existingTP"
+).value || 0
+);
+
+const url =
+
+`/api/market?instrumentId=${instrumentId}&holding=${holding}&leverage=${leverage}&entryPrice=${entryPrice}&existingSL=${existingSL}&existingTP=${existingTP}`;
 
 const response =
-await fetch(
+await fetch(url);
 
-`/api/market?instrumentId=${instrumentId}&holding=${holding}&leverage=${leverage}&entryPrice=${entryPrice}&existingSL=${existingSL}&existingTP=${existingTP}`
+if(!response.ok){
 
+throw new Error(
+`HTTP ${response.status}`
 );
+}
 
 const data =
 await response.json();
 
 if(data.error){
 
-log(data.error);
-return;
+throw new Error(data.error);
 }
 
-document.getElementById("signal").innerText =
-data.signal;
+/*
+========================================
+SIGNAL
+========================================
+*/
 
-document.getElementById("signal").className =
-`signal ${data.signal.toLowerCase()}`;
+const signalElement =
+document.getElementById("signal");
 
-document.getElementById("confidence").innerText =
-data.confidence;
+signalElement.innerText =
+data.signal || "HOLD";
 
-document.getElementById("duration").innerText =
-data.duration;
+signalElement.className =
+`signal ${
+(data.signal || "hold")
+.toLowerCase()
+}`;
 
-document.getElementById("shortTrend").innerText =
-data.shortTrend;
+/*
+========================================
+UPDATE VALUES
+========================================
+*/
 
-document.getElementById("midTrend").innerText =
-data.midTrend;
+setValue(
+"confidence",
+data.confidence
+);
 
-document.getElementById("longTrend").innerText =
-data.longTrend;
+setValue(
+"duration",
+data.duration
+);
 
-document.getElementById("price").innerText =
-data.price;
+setValue(
+"shortTrend",
+data.shortTrend
+);
 
-document.getElementById("ema20").innerText =
-data.ema20;
+setValue(
+"midTrend",
+data.midTrend
+);
 
-document.getElementById("ema50").innerText =
-data.ema50;
+setValue(
+"longTrend",
+data.longTrend
+);
 
-document.getElementById("ema100").innerText =
-data.ema100;
+setValue(
+"price",
+data.price
+);
 
-document.getElementById("rsi").innerText =
-data.rsi;
+setValue(
+"ema20",
+data.ema20
+);
 
-document.getElementById("atr").innerText =
-data.atr;
+setValue(
+"ema50",
+data.ema50
+);
 
-document.getElementById("spread").innerText =
-data.spread;
+setValue(
+"ema100",
+data.ema100
+);
 
-document.getElementById("entry").innerText =
-data.entry;
+setValue(
+"rsi",
+data.rsi
+);
 
-document.getElementById("sl").innerText =
-data.stopLoss;
+setValue(
+"atr",
+data.atr
+);
 
-document.getElementById("tp").innerText =
-data.takeProfit;
+setValue(
+"spread",
+data.spread
+);
 
-document.getElementById("risk").innerText =
-data.riskScore;
+setValue(
+"entry",
+data.entry
+);
 
-document.getElementById("pnl").innerText =
-data.pnl;
+setValue(
+"sl",
+data.stopLoss
+);
 
-document.getElementById("exposure").innerText =
-data.exposure;
+setValue(
+"tp",
+data.takeProfit
+);
 
-document.getElementById("positionAdvice").innerText =
-data.positionAdvice;
+setValue(
+"risk",
+data.riskScore
+);
+
+setValue(
+"pnl",
+data.pnl
+);
+
+setValue(
+"exposure",
+data.exposure
+);
+
+setValue(
+"positionAdvice",
+data.positionAdvice
+);
 
 log("Analysis completed");
 
 }catch(err){
 
-log(err.message);
+console.error(err);
+
+log(
+`ERROR: ${err.message}`
+);
+
+}finally{
+
+isRunning = false;
+
+runBtn.disabled = false;
+
+document.body.classList.remove(
+"loading"
+);
 }
 }
+
+/*
+==================================================
+AUTO START
+==================================================
+*/
 
 runAnalysis();
 
+/*
+==================================================
+AUTO REFRESH
+==================================================
+*/
+
+const REFRESH_INTERVAL =
+1000 * 60 * 15;
+
 setInterval(
 runAnalysis,
-1000 * 60 * 15
+REFRESH_INTERVAL
 );
 
 </script>
 
 </body>
+
 </html>
