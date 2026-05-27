@@ -401,9 +401,13 @@ throw new Error(
 `Rates API failed ${liveResponse.status}`
 );
 }
-
 const liveData =
 await liveResponse.json();
+
+console.log(
+JSON.stringify(liveData)
+);
+
 
 if(
 !liveData.rates ||
