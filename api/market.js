@@ -249,8 +249,7 @@ export default async function handler(req, res){
 
     const shortTrend = currentPrice > ema20 ? "BULLISH" : "BEARISH";
     const midTrend = ema20 > ema50 ? "BULLISH" : "BEARISH";
-    const longTrend = ema50 > ema100 ? "BULLISH" : "BEARISH";
-
+    const longTrend = ema50 > ema100 ? "BULLISH" : "    /*
     /*
     ==================================================
     SIGNAL ENGINE
@@ -259,27 +258,54 @@ export default async function handler(req, res){
     let signal = "HOLD";
     let confidence = 50;
 
-    if(shortTrend==="BULLISH" && midTrend==="BULLISH" && longTrend==="BULLISH" && rsi>50 && rsi<68){
-      signal = "BUY";
-      confidence += 30;
-    }
+    // --- TELEGRAM TESTING BACKDOOR ---
+    // To test your SELL message, temporarily change 'false' to 'true'
+    const TRIGGER_MOCK_SELL_TEST = true; 
 
-    if(shortTrend==="BEARISH" && midTrend==="BEARISH" && longTrend==="BEARISH" && rsi<40){
+    if (TRIGGER_MOCK_SELL_TEST) {
       signal = "SELL";
-      confidence += 30;
+      confidence = 99;
+    } else {
+      // Your actual live trading logic
+      if(shortTrend==="BULLISH" && midTrend==="BULLISH" && longTrend==="BULLISH" && rsi>50 && rsi<68){
+        signal = "BUY";
+        confidence += 30;
+      }
+
+      if(shortTrend==="BEARISH" && midTrend==="BEARISH" && longTrend==="BEARISH" && rsi<40){
+        signal = "SELL";
+        confidence += 30;
+      }
     }
 
+    // DURATION
     let duration = "INTRADAY";
     if(midTrend==="BULLISH" && longTrend==="BULLISH") duration = "SWING";
     if(Math.abs(ema20-ema100)>600) duration = "POSITION";
 
-    const stopLoss = signal==="BUY" ? currentPrice-(atr*1.5) : currentPrice+(atr*1.5);
-    const takeProfit = signal==="BUY" ? currentPrice+(atr*3) : currentPrice-(atr*3);
+    /*
+    ==================================================
+    ACCURATE RISK TARGETS (3-WAY LOGIC FIX)
+    ==================================================
+    */
+    let stopLoss = 0;
+    let takeProfit = 0;
+
+    if (signal === "BUY") {
+      stopLoss = currentPrice - (atr * 1.5);
+      takeProfit = currentPrice + (atr * 3);
+    } else if (signal === "SELL") {
+      stopLoss = currentPrice + (atr * 1.5);
+      takeProfit = currentPrice - (atr * 3);
+    } else {
+      // For HOLD states: Use baseline tracking parameters or clear targets
+      stopLoss = currentPrice - (atr * 2);
+      takeProfit = currentPrice + (atr * 2);
+    }
 
     // Use current active database leverage for accurate risk assessment on refresh
     const activeLeverage = state.holding ? state.leverage : leverage;
     let riskScore = Math.min(100, Math.round(40 + (activeLeverage*5) + (spread*0.01)));
-
     /*
     ==================================================
     POSITION ANALYSIS
