@@ -8,43 +8,34 @@
 *{
 box-sizing:border-box;
 margin:0;
-padding:0;
-}
+padding:0}
 body{
 background:#020617;
 color:white;
 font-family:Arial,sans-serif;
-padding:20px;
-}
+padding:20px}
 .container{
 max-width:1100px;
-margin:auto;
-}
+margin:auto}
 .card{
 background:#0f172a;
 padding:20px;
 border-radius:16px;
 margin-bottom:20px;
-border:1px solid #1e293b;
-}
+border:1px solid #1e293b}
 .grid{
 display:grid;
 grid-template-columns:1fr 1fr;
-gap:12px;
-}
+gap:12px}
 @media(max-width:768px){
 .grid{
-grid-template-columns:1fr;
-}
+grid-template-columns:1fr}
 .signal{
-font-size:32px;
-}
-}
+font-size:32px}}
 label{
 display:block;
 margin-bottom:8px;
-font-weight:bold;
-}
+font-weight:bold}
 input,
 select{
 width:100%;
@@ -55,12 +46,10 @@ border-radius:12px;
 background:#1e293b;
 color:white;
 font-size:16px;
-outline:none;
-}
+outline:none}
 input:focus,
 select:focus{
-border:1px solid #06b6d4;
-}
+border:1px solid #06b6d4}
 button{
 padding:14px 20px;
 background:#06b6d4;
@@ -72,29 +61,22 @@ cursor:pointer;
 width:100%;
 font-size:16px;
 transition:0.2s;
-margin-top:8px;
-}
+margin-top:8px}
 button:hover{
-opacity:0.9;
-}
+opacity:0.9}
 .metric{
 margin-bottom:14px;
-font-size:18px;
-}
+font-size:18px}
 .signal{
 font-size:42px;
 font-weight:900;
-margin-bottom:12px;
-}
+margin-bottom:12px}
 .buy{
-color:#22c55e;
-}
+color:#22c55e}
 .sell{
-color:#ef4444;
-}
+color:#ef4444}
 .hold{
-color:#facc15;
-}
+color:#facc15}
 .log{
 background:black;
 padding:12px;
@@ -103,11 +85,9 @@ overflow:auto;
 font-family:monospace;
 color:#22c55e;
 border-radius:12px;
-border:1px solid #1e293b;
-}
+border:1px solid #1e293b}
 .loading{
-opacity:0.7;
-}
+opacity:0.7}
 </style>
 </head>
 <body>
@@ -202,13 +182,14 @@ opacity:0.7;
 <h2 style="margin-bottom:16px;">System Log</h2>
 <div id="logBox" class="log"></div>
 </div>
+
+<div style="margin: 25px auto; padding: 15px; background: #0f172a; color: #a9b7c6; border-radius: 16px; font-family: monospace; border:1px solid #1e293b;">
+  <h3 style="margin-top: 0; color: #06b6d4; border-bottom: 1px solid #1e293b; padding-bottom: 8px;">🔄 24/7 System Audit Trail Logs</h3>
+  <pre id="systemAuditTerminalLogs" style="margin: 0; max-height: 200px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.5; background: #020617; padding: 10px; border-radius: 12px; color: #e2e8f0; border: 1px solid #1e293b;">Waking up pipeline connection tracking layers...</pre>
 </div>
 
- <div style="margin: 25px auto; max-width: 1100px; padding: 15px; background: #1e1e24; color: #a9b7c6; border-radius: 8px; font-family: monospace; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-  <h3 style="margin-top: 0; color: #4ec9b0; border-bottom: 1px solid #333; padding-bottom: 8px;">🔄 24/7 System Audit Trail Logs</h3>
-  <pre id="systemAuditTerminalLogs" style="margin: 0; max-height: 200px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.5; background: #121214; padding: 10px; border-radius: 4px;">Waking up pipeline connection tracking layers...</pre>
 </div>
- 
+
 <script>
 const logBox = document.getElementById("logBox");
 const runBtn = document.getElementById("runBtn");
@@ -318,7 +299,9 @@ setInterval(() => {
   runAnalysis(false);
 }, REFRESH_INTERVAL);
 
-// FETCH AND EXPOSE CLOUD LOGS WITHIN THE TERMINAL CONSOLE
+// ==========================================
+// NEW JAVASCRIPT LOG ENGINES (Step 4B)
+// ==========================================
 async function renderSystemLogsTrail() {
   const consoleDisplay = document.getElementById("systemAuditTerminalLogs");
   if (!consoleDisplay) return;
@@ -333,13 +316,13 @@ async function renderSystemLogsTrail() {
         const entryTriggerMode = entry.trigger === "AUTOMATED_CRON" ? "⏰ CLOUD_CRON" : "💻 MANUAL_DASH";
         
         if (entry.signal === "ERROR") {
-          return `<span style="color: #f44336;">[${localFormattedTime}] ${entryTriggerMode} | CRITICAL EXCEPTION ERR: ${entry.errorDetails}</span>`;
+          return `<span style="color: #ef4444;">[${localFormattedTime}] ${entryTriggerMode} | CRITICAL EXCEPTION ERR: ${entry.errorDetails}</span>`;
         }
         
         let labelColor = "#ffffff";
-        if (entry.signal === "BUY") labelColor = "#4caf50";
-        if (entry.signal === "SELL") labelColor = "#ff9800";
-        if (entry.signal === "HOLD") labelColor = "#2196f3";
+        if (entry.signal === "BUY") labelColor = "#22c55e";
+        if (entry.signal === "SELL") labelColor = "#ef4444";
+        if (entry.signal === "HOLD") labelColor = "#facc15";
 
         return `[${localFormattedTime}] ${entryTriggerMode} | Asset: ${entry.instrumentId} | Price: $${entry.price} | RSI: ${entry.rsi} | Signal: <strong style="color: ${labelColor};">${entry.signal}</strong> | Telegram: <em>${entry.telegramStatus}</em>`;
       }).join("\n");
@@ -360,7 +343,6 @@ window.runAnalysis = async function(...args) {
 
 // Initialize logs instantly when page content maps to screen frameworks
 window.addEventListener('DOMContentLoaded', renderSystemLogsTrail);
- 
 </script>
 </body>
 </html>
