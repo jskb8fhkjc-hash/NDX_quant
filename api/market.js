@@ -102,11 +102,14 @@ export default async function handler(req, res){
   const hasValidSecret = req.query.secret === "MY_SUPER_SECRET_PASSWORD";
 
   if (!isCronTrigger && !hasValidSecret && !req.headers['referer'] && !req.headers['host']?.includes('localhost')) {
-  return res.status(401).json({ success: false, error: "Unauthorized access attempt" });
+    return res.status(401).json({ success: false, error: "Unauthorized access attempt" });
   }
 
   // Track the execution's Telegram status for our audit logging list
   let telegramLogStatus = "SKIPPED (No Signal Change)";
+
+  // Safe global execution identifier for fallback catch block access
+  const instrumentId = req.query.instrumentId || "686";
 
   try {
     const API_KEY = process.env.ETORO_API_KEY;
@@ -115,7 +118,6 @@ export default async function handler(req, res){
     const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
     const BASE_URL = "https://public-api.etoro.com/api/v1";
 
-    const instrumentId = req.query.instrumentId || "686";
     const holding = req.query.holding || "no";
     const leverage = parseFloat(req.query.leverage || 1);
     const entryPrice = parseFloat(req.query.entryPrice || 0);
@@ -174,7 +176,6 @@ export default async function handler(req, res){
       }
       
       // FIX: Force reset the saved signal memory context when position parameters shift.
-      // This allows immediate generation of a new signal message upon subsequent runs.
       state.lastSignal = "NONE";
       
       await redis.set(`position-${instrumentId}`, state);
@@ -328,12 +329,10 @@ export default async function handler(req, res){
     */
     let shouldNotify = false;
     
-    // FIX: Optimized state processing logic to confirm signals transition smoothly
     if(signal !== state.lastSignal){
       if(!state.holding && signal==="BUY") shouldNotify = true;
       if(state.holding && signal==="SELL") shouldNotify = true;
       
-      // Update our persistent state signature tracking token
       state.lastSignal = signal;
     }
 
@@ -363,22 +362,14 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    💾 HISTORICAL SYSTEM AUDIT LOGGING (REDIS LIST)
+    💾 HISTORICAL SYSTEM AUDIT LOGGING (TEXT-STRING FIX)
     ==================================================
     */
-    const logEntry = {
-      timestamp: new Date().toISOString(),
-      trigger: isCronTrigger ? "AUTOMATED_CRON" : "MANUAL_DASHBOARD",
-      instrumentId,
-      price: currentPrice.toFixed(2),
-      rsi: rsi.toFixed(2),
-      signal,
-      telegramStatus: telegramLogStatus
-    };
+    const formattedDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const logString = `${formattedDate} | ${isCronTrigger ? "AUTOMATED_CRON" : "MANUAL_DASHBOARD"} | ID: ${instrumentId} | Price: ${currentPrice.toFixed(2)} | RSI: ${rsi.toFixed(2)} | ${signal}`;
 
-    // Save data object into the 'system-audit-logs' list array
-    await redis.lpush("system-audit-logs", JSON.stringify(logEntry));
-    // Prune data stack to only preserve top 100 historical entries
+    // Save pure string representation directly into Redis list array
+    await redis.lpush("system-audit-logs", logString);
     await redis.ltrim("system-audit-logs", 0, 99);
 
     /*
@@ -420,15 +411,17 @@ export default async function handler(req, res){
   } catch(err) {
     console.error("Fatal Runtime Error:", err);
     
-    // Attempt log fallback configuration injection if primary pipeline errors out
+    /*
+    ==================================================
+    💾 CATCH BLOCK FALLBACK LOGGING (TEXT-STRING FIX)
+    ==================================================
+    */
     try {
-      await redis.lpush("system-audit-logs", JSON.stringify({
-        timestamp: new Date().toISOString(),
-        trigger: isCronTrigger ? "AUTOMATED_CRON" : "MANUAL_DASHBOARD",
-        signal: "ERROR",
-        telegramStatus: "CRITICAL FAILURE",
-        errorDetails: err.message
-      }));
+      const formattedDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const errorLogString = `${formattedDate} | ${isCronTrigger ? "AUTOMATED_CRON" : "MANUAL_DASHBOARD"} | ID: ${instrumentId} | Price: ERROR | RSI: ERROR | EXCEPTION: ${err.message.substring(0, 30)}`;
+      
+      await redis.lpush("system-audit-logs", errorLogString);
+      await redis.ltrim("system-audit-logs", 0, 99);
     } catch(e) {}
 
     return res.status(500).json({ success: false, error: err.message });
