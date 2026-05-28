@@ -135,7 +135,7 @@ opacity:0.7}
 </div>
 
 <button onclick="savePosition()">Save Position</button>
-<button id="runBtn" onclick="runAnalysis(false)">Run Analysis</button>
+<button id="runBtn" onclick="triggerAnalysisPipeline(false)">Run Analysis</button>
 </div>
 
 <div class="card">
@@ -215,7 +215,7 @@ function setValue(id, value){
 
 async function savePosition(){
   log("Saving position...");
-  await runAnalysis(true);
+  await triggerAnalysisPipeline(true);
   log("Position saved");
 }
 
@@ -292,7 +292,7 @@ async function runAnalysis(updatePosition=false){
 }
 
 // ==========================================
-// NEW JAVASCRIPT LOG ENGINES (Step 4B)
+// NEW JAVASCRIPT LOG ENGINES
 // ==========================================
 async function renderSystemLogsTrail() {
   const consoleDisplay = document.getElementById("systemAuditTerminalLogs");
@@ -326,12 +326,11 @@ async function renderSystemLogsTrail() {
   }
 }
 
-// Intercept runAnalysis to cleanly reload logs upon routine finish phases
-const initialRunAnalysisWrapper = runAnalysis;
-runAnalysis = async function(updatePosition=false) {
-  await initialRunAnalysisWrapper(updatePosition);
+// Intercept wrapper to safely call core engine and request UI updates
+async function triggerAnalysisPipeline(updatePosition = false) {
+  await runAnalysis(updatePosition);
   setTimeout(renderSystemLogsTrail, 1500);
-};
+}
 
 // Initialize logs instantly when page content maps to screen frameworks
 window.addEventListener('DOMContentLoaded', renderSystemLogsTrail);
@@ -339,11 +338,11 @@ window.addEventListener('DOMContentLoaded', renderSystemLogsTrail);
 // ==========================================
 // INITIAL EXECUTION ROUTINES & INTERVALS
 // ==========================================
-runAnalysis(false);
+triggerAnalysisPipeline(false);
 
 const REFRESH_INTERVAL = 1000 * 60 * 15;
 setInterval(() => {
-  runAnalysis(false);
+  triggerAnalysisPipeline(false);
 }, REFRESH_INTERVAL);
 </script>
 </body>
