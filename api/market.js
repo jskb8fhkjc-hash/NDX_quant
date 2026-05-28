@@ -1,9 +1,3 @@
-Here is the completely refactored, production-ready file.
-### Key Improvements Made:
- 1. **Build-Safe Redis Initialization:** Added a fallback mechanism so that if your environment variables (UPSTASH_REDIS_REST_URL, etc.) are missing or unreadable during the strict headless build phase, the compiler won't crash trying to parse an empty string.
- 2. **Fixed Telegram Endpoint Hook:** Swapped your custom wrapper out for a clean, native global fetch configuration inside the Telegram notification try-catch block to guarantee the payload compiles properly.
- 3. **Optimized Math Logic:** Ensured all historical technical calculation engines explicitly parse strings into floats to prevent accidental NaN calculations which cause silent failures.
-```javascript
 import { Redis } from "@upstash/redis";
 
 function uuidv4(){
