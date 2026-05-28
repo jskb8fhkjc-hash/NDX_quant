@@ -104,6 +104,9 @@ export default async function handler(req, res){
     return res.status(401).json({ success: false, error: "Unauthorized access attempt" });
   }
 
+  // Track the execution's Telegram status for our audit logging list
+  let telegramLogStatus = "SKIPPED (No Signal Change)";
+
   try {
     const API_KEY = process.env.ETORO_API_KEY;
     const USER_KEY = process.env.ETORO_USER_KEY;
@@ -145,10 +148,11 @@ export default async function handler(req, res){
 
     if (state.existingSL === undefined) state.existingSL = 0;
     if (state.existingTP === undefined) state.existingTP = 0;
+    if (state.lastSignal === undefined) state.lastSignal = "NONE";
 
     /*
     ==================================================
-    DATABASE POSITION STATE SYNC
+    DATABASE POSITION STATE SYNC & BUGFIX RESET
     ==================================================
     */
     if(updatePosition){
@@ -167,6 +171,11 @@ export default async function handler(req, res){
         state.existingSL = 0;
         state.existingTP = 0;
       }
+      
+      // FIX: Force reset the saved signal memory context when position parameters shift.
+      // This allows immediate generation of a new signal message upon subsequent runs.
+      state.lastSignal = "NONE";
+      
       await redis.set(`position-${instrumentId}`, state);
     }
 
@@ -188,7 +197,6 @@ export default async function handler(req, res){
 
     if(!liveResponse.ok){
       const errorText = await liveResponse.text();
-      console.log("ETORO ERROR:", errorText);
       throw new Error(`Rates API failed ${liveResponse.status} - ${errorText}`);
     }
 
@@ -256,21 +264,14 @@ export default async function handler(req, res){
     let signal = "HOLD";
     let confidence = 50;
 
-    const TRIGGER_MOCK_SELL_TEST = false; 
+    if(shortTrend==="BULLISH" && midTrend==="BULLISH" && longTrend==="BULLISH" && rsi>50 && rsi<68){
+      signal = "BUY";
+      confidence += 30;
+    }
 
-    if (TRIGGER_MOCK_SELL_TEST) {
+    if(shortTrend==="BEARISH" && midTrend==="BEARISH" && longTrend==="BEARISH" && rsi<40){
       signal = "SELL";
-      confidence = 99;
-    } else {
-      if(shortTrend==="BULLISH" && midTrend==="BULLISH" && longTrend==="BULLISH" && rsi>50 && rsi<68){
-        signal = "BUY";
-        confidence += 30;
-      }
-
-      if(shortTrend==="BEARISH" && midTrend==="BEARISH" && longTrend==="BEARISH" && rsi<40){
-        signal = "SELL";
-        confidence += 30;
-      }
+      confidence += 30;
     }
 
     let duration = "INTRADAY";
@@ -321,20 +322,24 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    TELEGRAM EXECUTOR WEBHOOK
+    TELEGRAM EXECUTOR WEBHOOK (FIXED CONDITIONAL)
     ==================================================
     */
     let shouldNotify = false;
+    
+    // FIX: Optimized state processing logic to confirm signals transition smoothly
     if(signal !== state.lastSignal){
       if(!state.holding && signal==="BUY") shouldNotify = true;
       if(state.holding && signal==="SELL") shouldNotify = true;
+      
+      // Update our persistent state signature tracking token
       state.lastSignal = signal;
     }
 
     if(shouldNotify){
-      const message = `${signal} SIGNAL\n\nInstrument: ${instrumentId}\nPrice: ${currentPrice.toFixed(2)}\nConfidence: ${confidence}%\nRSI: ${rsi.toFixed(2)}\nEMA20: ${ema20.toFixed(2)}\nEMA50: ${ema50.toFixed(2)}\nEMA100: ${ema100.toFixed(2)}\nDuration: ${duration}\nSL: ${stopLoss.toFixed(2)}\nTP: ${takeProfit.toFixed(2)}\nPnL: ${pnl}`;
+      const message = `${signal} SIGNAL GENERATED\n\nAsset ID: ${instrumentId}\nExecution Price: ${currentPrice.toFixed(2)}\nConfidence Match: ${confidence}%\nLive RSI: ${rsi.toFixed(2)}\nEMA20: ${ema20.toFixed(2)}\nEMA50: ${ema50.toFixed(2)}\nEMA100: ${ema100.toFixed(2)}\nDuration Target: ${duration}\nSuggested SL: ${stopLoss.toFixed(2)}\nSuggested TP: ${takeProfit.toFixed(2)}\nActive Position Profit: ${pnl}`;
       try {
-        await fetchWithTimeout(
+        const tgRes = await fetchWithTimeout(
           `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
           {
             method: "POST",
@@ -342,12 +347,38 @@ export default async function handler(req, res){
             body: JSON.stringify({ chat_id: CHAT_ID, text: message })
           }
         );
+        if(tgRes.ok) {
+          telegramLogStatus = "SUCCESSFULLY SIGNALED";
+        } else {
+          telegramLogStatus = `FAILED (Status Code: ${tgRes.status})`;
+        }
       } catch (tgErr) {
-        console.error("Telegram fail:", tgErr.message);
+        telegramLogStatus = `CRITICAL TELEGRAM ERROR: ${tgErr.message}`;
       }
     }
 
+    // Save state back to Upstash Redis
     await redis.set(`position-${instrumentId}`, state);
+
+    /*
+    ==================================================
+    💾 HISTORICAL SYSTEM AUDIT LOGGING (REDIS LIST)
+    ==================================================
+    */
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      trigger: isCronTrigger ? "AUTOMATED_CRON" : "MANUAL_DASHBOARD",
+      instrumentId,
+      price: currentPrice.toFixed(2),
+      rsi: rsi.toFixed(2),
+      signal,
+      telegramStatus: telegramLogStatus
+    };
+
+    // Save data object into the 'system-audit-logs' list array
+    await redis.lpush("system-audit-logs", JSON.stringify(logEntry));
+    // Prune data stack to only preserve top 100 historical entries
+    await redis.ltrim("system-audit-logs", 0, 99);
 
     /*
     ==================================================
@@ -387,6 +418,18 @@ export default async function handler(req, res){
 
   } catch(err) {
     console.error("Fatal Runtime Error:", err);
+    
+    // Attempt log fallback configuration injection if primary pipeline errors out
+    try {
+      await redis.lpush("system-audit-logs", JSON.stringify({
+        timestamp: new Date().toISOString(),
+        trigger: isCronTrigger ? "AUTOMATED_CRON" : "MANUAL_DASHBOARD",
+        signal: "ERROR",
+        telegramStatus: "CRITICAL FAILURE",
+        errorDetails: err.message
+      }));
+    } catch(e) {}
+
     return res.status(500).json({ success: false, error: err.message });
   }
 }
