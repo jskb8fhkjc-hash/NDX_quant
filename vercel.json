@@ -1,13 +1,8 @@
 {
-  "functions": {
-    "api/*.js": {
-      "maxDuration": 60
-    }
-  },
   "crons": [
     {
       "path": "/api/market",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }
