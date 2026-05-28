@@ -2,14 +2,18 @@ import { Redis } from "@upstash/redis";
 
 /*
 ==================================================
-UUID GENERATOR
+UUID
 ==================================================
 */
 function uuidv4() {
+
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
-    .replace(/[xy]/g, function (c) {
+    .replace(/[xy]/g, function(c){
+
       const r = Math.random() * 16 | 0;
-      const v = c === "x"
+
+      const v =
+        c === "x"
         ? r
         : (r & 0x3 | 0x8);
 
@@ -23,6 +27,7 @@ REDIS
 ==================================================
 */
 const redis = new Redis({
+
   url:
     process.env.UPSTASH_REDIS_REST_KV_REST_API_URL,
 
@@ -32,30 +37,34 @@ const redis = new Redis({
 
 /*
 ==================================================
-FETCH TIMEOUT
+FETCH WITH TIMEOUT
 ==================================================
 */
 async function fetchWithTimeout(
   url,
   options = {},
   timeout = 15000
-) {
+){
 
-  const controller = new AbortController();
+  const controller =
+    new AbortController();
 
   const id = setTimeout(() => {
+
     controller.abort();
+
   }, timeout);
 
   try {
 
-    const response = await fetch(
-      url,
-      {
-        ...options,
-        signal: controller.signal
-      }
-    );
+    const response =
+      await fetch(
+        url,
+        {
+          ...options,
+          signal: controller.signal
+        }
+      );
 
     return response;
 
@@ -70,19 +79,20 @@ async function fetchWithTimeout(
 EMA
 ==================================================
 */
-function EMA(data, period) {
+function EMA(data, period){
 
-  if (!data.length) return 0;
+  if(!data.length) return 0;
 
-  const k = 2 / (period + 1);
+  const k =
+    2 / (period + 1);
 
   let ema = data[0];
 
-  for (let i = 1; i < data.length; i++) {
+  for(let i=1;i<data.length;i++){
 
     ema =
       data[i] * k +
-      ema * (1 - k);
+      ema * (1-k);
   }
 
   return ema;
@@ -93,38 +103,44 @@ function EMA(data, period) {
 RSI
 ==================================================
 */
-function RSI(closes, period = 14) {
+function RSI(closes, period=14){
 
-  if (closes.length < period + 1) {
+  if(closes.length < period+1){
     return 50;
   }
 
   let gains = 0;
   let losses = 0;
 
-  for (let i = 1; i <= period; i++) {
+  for(let i=1;i<=period;i++){
 
     const diff =
-      closes[i] - closes[i - 1];
+      closes[i] - closes[i-1];
 
-    if (diff >= 0) {
+    if(diff >= 0){
+
       gains += diff;
+
     } else {
+
       losses += Math.abs(diff);
     }
   }
 
-  let avgGain = gains / period;
-  let avgLoss = losses / period;
+  let avgGain =
+    gains / period;
 
-  for (
-    let i = period + 1;
-    i < closes.length;
+  let avgLoss =
+    losses / period;
+
+  for(
+    let i=period+1;
+    i<closes.length;
     i++
-  ) {
+  ){
 
     const diff =
-      closes[i] - closes[i - 1];
+      closes[i] - closes[i-1];
 
     const gain =
       diff > 0 ? diff : 0;
@@ -134,25 +150,25 @@ function RSI(closes, period = 14) {
 
     avgGain =
       (
-        avgGain * (period - 1) +
-        gain
+        avgGain * (period-1)
+        + gain
       ) / period;
 
     avgLoss =
       (
-        avgLoss * (period - 1) +
-        loss
+        avgLoss * (period-1)
+        + loss
       ) / period;
   }
 
-  if (avgLoss === 0) {
+  if(avgLoss === 0){
     return 100;
   }
 
   const rs =
     avgGain / avgLoss;
 
-  return 100 - (100 / (1 + rs));
+  return 100 - (100/(1+rs));
 }
 
 /*
@@ -160,15 +176,15 @@ function RSI(closes, period = 14) {
 ATR
 ==================================================
 */
-function ATR(candles, period = 14) {
+function ATR(candles, period=14){
 
-  if (candles.length < period + 1) {
+  if(candles.length < period+1){
     return 0;
   }
 
   const trs = [];
 
-  for (let i = 1; i < candles.length; i++) {
+  for(let i=1;i<candles.length;i++){
 
     const high =
       parseFloat(candles[i].high);
@@ -177,12 +193,12 @@ function ATR(candles, period = 14) {
       parseFloat(candles[i].low);
 
     const prevClose =
-      parseFloat(candles[i - 1].close);
+      parseFloat(candles[i-1].close);
 
     const tr = Math.max(
-      high - low,
-      Math.abs(high - prevClose),
-      Math.abs(low - prevClose)
+      high-low,
+      Math.abs(high-prevClose),
+      Math.abs(low-prevClose)
     );
 
     trs.push(tr);
@@ -192,7 +208,7 @@ function ATR(candles, period = 14) {
     trs.slice(-period);
 
   return (
-    recent.reduce((a, b) => a + b, 0)
+    recent.reduce((a,b)=>a+b,0)
     / period
   );
 }
@@ -205,7 +221,7 @@ MAIN
 export default async function handler(
   req,
   res
-) {
+){
 
   try {
 
@@ -224,6 +240,34 @@ export default async function handler(
     const instrumentId =
       req.query.instrumentId || "686";
 
+    const holding =
+      req.query.holding || "no";
+
+    const leverage =
+      parseFloat(
+        req.query.leverage || 1
+      );
+
+    const entryPrice =
+      parseFloat(
+        req.query.entryPrice || 0
+      );
+
+    const amountInvested =
+      parseFloat(
+        req.query.amountInvested || 1000
+      );
+
+    const existingSL =
+      parseFloat(
+        req.query.existingSL || 0
+      );
+
+    const existingTP =
+      parseFloat(
+        req.query.existingTP || 0
+      );
+
     const BASE_URL =
       "https://public-api.etoro.com/api/v1";
 
@@ -238,7 +282,7 @@ export default async function handler(
         `${BASE_URL}/market-data/instruments/rates?instrumentIds=${instrumentId}`,
 
         {
-          headers: {
+          headers:{
             "x-api-key": API_KEY,
             "x-user-key": USER_KEY,
             "x-request-id": uuidv4()
@@ -246,7 +290,7 @@ export default async function handler(
         }
       );
 
-    if (!liveResponse.ok) {
+    if(!liveResponse.ok){
 
       const txt =
         await liveResponse.text();
@@ -273,7 +317,7 @@ export default async function handler(
         `${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/OneDay/200`,
 
         {
-          headers: {
+          headers:{
             "x-api-key": API_KEY,
             "x-user-key": USER_KEY,
             "x-request-id": uuidv4()
@@ -281,7 +325,7 @@ export default async function handler(
         }
       );
 
-    if (!candleResponse.ok) {
+    if(!candleResponse.ok){
 
       const txt =
         await candleResponse.text();
@@ -298,8 +342,9 @@ export default async function handler(
       candleData.candles[0].candles;
 
     candles.sort(
-      (a, b) =>
-        new Date(a.fromDate) -
+      (a,b)=>
+        new Date(a.fromDate)
+        -
         new Date(b.fromDate)
     );
 
@@ -314,13 +359,13 @@ export default async function handler(
     ==============================================
     */
     const ema20 =
-      EMA(closes.slice(-20), 20);
+      EMA(closes.slice(-20),20);
 
     const ema50 =
-      EMA(closes.slice(-50), 50);
+      EMA(closes.slice(-50),50);
 
     const ema100 =
-      EMA(closes.slice(-100), 100);
+      EMA(closes.slice(-100),100);
 
     const rsi =
       RSI(closes);
@@ -331,6 +376,35 @@ export default async function handler(
     const currentPrice =
       parseFloat(live.lastExecution);
 
+    const ask =
+      parseFloat(live.ask);
+
+    const bid =
+      parseFloat(live.bid);
+
+    const spread =
+      ask - bid;
+
+    /*
+    ==============================================
+    TRENDS
+    ==============================================
+    */
+    const shortTrend =
+      currentPrice > ema20
+      ? "BULLISH"
+      : "BEARISH";
+
+    const midTrend =
+      ema20 > ema50
+      ? "BULLISH"
+      : "BEARISH";
+
+    const longTrend =
+      ema50 > ema100
+      ? "BULLISH"
+      : "BEARISH";
+
     /*
     ==============================================
     SIGNAL
@@ -338,23 +412,139 @@ export default async function handler(
     */
     let signal = "HOLD";
 
-    if (
-      currentPrice > ema20 &&
-      ema20 > ema50 &&
-      ema50 > ema100 &&
-      rsi > 50 &&
-      rsi < 68
-    ) {
+    let confidence = 50;
+
+    if(
+      shortTrend==="BULLISH" &&
+      midTrend==="BULLISH" &&
+      longTrend==="BULLISH" &&
+      rsi>50 &&
+      rsi<68
+    ){
+
       signal = "BUY";
+
+      confidence += 30;
     }
 
-    if (
-      currentPrice < ema20 &&
-      ema20 < ema50 &&
-      ema50 < ema100 &&
-      rsi < 40
-    ) {
+    if(
+      shortTrend==="BEARISH" &&
+      midTrend==="BEARISH" &&
+      longTrend==="BEARISH" &&
+      rsi<40
+    ){
+
       signal = "SELL";
+
+      confidence += 30;
+    }
+
+    /*
+    ==============================================
+    DURATION
+    ==============================================
+    */
+    let duration = "INTRADAY";
+
+    if(
+      midTrend==="BULLISH" &&
+      longTrend==="BULLISH"
+    ){
+      duration = "SWING";
+    }
+
+    if(
+      Math.abs(ema20-ema100)>600
+    ){
+      duration = "POSITION";
+    }
+
+    /*
+    ==============================================
+    SL TP
+    ==============================================
+    */
+    const stopLoss =
+      signal==="BUY"
+      ? currentPrice - atr*1.5
+      : currentPrice + atr*1.5;
+
+    const takeProfit =
+      signal==="BUY"
+      ? currentPrice + atr*3
+      : currentPrice - atr*3;
+
+    /*
+    ==============================================
+    RISK
+    ==============================================
+    */
+    let riskScore =
+      Math.round(
+        40 +
+        leverage*5 +
+        spread*0.01
+      );
+
+    riskScore =
+      Math.min(100,riskScore);
+
+    /*
+    ==============================================
+    POSITION
+    ==============================================
+    */
+    let pnl = "--";
+
+    let exposure = "--";
+
+    let positionAdvice =
+      "NO OPEN POSITION";
+
+    if(
+      holding==="yes" &&
+      entryPrice>0
+    ){
+
+      const percentMove =
+        (
+          currentPrice-entryPrice
+        ) / entryPrice;
+
+      const pnlValue =
+        amountInvested *
+        percentMove *
+        leverage;
+
+      pnl =
+        pnlValue.toFixed(2);
+
+      exposure =
+        (
+          amountInvested *
+          leverage
+        ).toFixed(2);
+
+      positionAdvice =
+        signal==="SELL"
+        ? "CONSIDER EXIT"
+        : "HOLD POSITION";
+
+      if(
+        existingTP>0 &&
+        currentPrice>=existingTP
+      ){
+        positionAdvice =
+          "TAKE PROFIT HIT";
+      }
+
+      if(
+        existingSL>0 &&
+        currentPrice<=existingSL
+      ){
+        positionAdvice =
+          "STOP LOSS BREACHED";
+      }
     }
 
     /*
@@ -369,27 +559,30 @@ export default async function handler(
         `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
 
         {
-          method: "POST",
+          method:"POST",
 
-          headers: {
+          headers:{
             "Content-Type":
               "application/json"
           },
 
-          body: JSON.stringify({
-            chat_id: CHAT_ID,
+          body:JSON.stringify({
+
+            chat_id:CHAT_ID,
+
             text:
 `${signal}
 Price: ${currentPrice}
-RSI: ${rsi.toFixed(2)}`
+RSI: ${rsi.toFixed(2)}
+Trend: ${shortTrend}`
           })
         }
       );
 
-    } catch (e) {
+    } catch(e){
 
       console.log(
-        "Telegram failed",
+        "Telegram error",
         e.message
       );
     }
@@ -421,8 +614,28 @@ RSI: ${rsi.toFixed(2)}`
 
       signal,
 
+      confidence:
+        confidence+"%",
+
+      duration,
+
+      shortTrend,
+
+      midTrend,
+
+      longTrend,
+
       price:
         currentPrice.toFixed(2),
+
+      ask:
+        ask.toFixed(2),
+
+      bid:
+        bid.toFixed(2),
+
+      spread:
+        spread.toFixed(2),
 
       ema20:
         ema20.toFixed(2),
@@ -437,19 +650,39 @@ RSI: ${rsi.toFixed(2)}`
         rsi.toFixed(2),
 
       atr:
-        atr.toFixed(2)
+        atr.toFixed(2),
+
+      entry:
+        currentPrice.toFixed(2),
+
+      stopLoss:
+        stopLoss.toFixed(2),
+
+      takeProfit:
+        takeProfit.toFixed(2),
+
+      riskScore:
+        riskScore+"/100",
+
+      pnl,
+
+      exposure,
+
+      positionAdvice
     });
 
-  } catch (err) {
+  } catch(err){
 
     console.log(
-      "FATAL ERROR:",
+      "FATAL ERROR",
       err
     );
 
     return res.status(500).json({
-      success: false,
-      error: err.message
+
+      success:false,
+
+      error:err.message
     });
   }
 }
