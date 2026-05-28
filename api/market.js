@@ -7,7 +7,7 @@ UUID GENERATOR
 */
 function uuidv4() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
-    .replace(/[xy]/g, function(c) {
+    .replace(/[xy]/g, function (c) {
       const r = Math.random() * 16 | 0;
       const v = c === "x"
         ? r
@@ -24,10 +24,10 @@ REDIS
 */
 const redis = new Redis({
   url:
-    process.env.UPSTASH_REDIS_REST_URL,
+    process.env.UPSTASH_REDIS_REST_KV_REST_API_URL,
 
   token:
-    process.env.UPSTASH_REDIS_REST_TOKEN
+    process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN
 });
 
 /*
@@ -41,21 +41,21 @@ async function fetchWithTimeout(
   timeout = 15000
 ) {
 
-  const controller =
-    new AbortController();
+  const controller = new AbortController();
 
-  const id =
-    setTimeout(() => {
-      controller.abort();
-    }, timeout);
+  const id = setTimeout(() => {
+    controller.abort();
+  }, timeout);
 
   try {
 
-    const response =
-      await fetch(url, {
+    const response = await fetch(
+      url,
+      {
         ...options,
         signal: controller.signal
-      });
+      }
+    );
 
     return response;
 
@@ -72,21 +72,17 @@ EMA
 */
 function EMA(data, period) {
 
-  if(data.length === 0){
-    return 0;
-  }
+  if (!data.length) return 0;
 
-  const k =
-    2 / (period + 1);
+  const k = 2 / (period + 1);
 
-  let ema =
-    data[0];
+  let ema = data[0];
 
-  for(let i=1; i<data.length; i++){
+  for (let i = 1; i < data.length; i++) {
 
     ema =
       data[i] * k +
-      ema * (1-k);
+      ema * (1 - k);
   }
 
   return ema;
@@ -97,37 +93,38 @@ function EMA(data, period) {
 RSI
 ==================================================
 */
-function RSI(closes, period=14){
+function RSI(closes, period = 14) {
 
-  if(closes.length < period+1){
+  if (closes.length < period + 1) {
     return 50;
   }
 
   let gains = 0;
   let losses = 0;
 
-  for(let i=1; i<=period; i++){
+  for (let i = 1; i <= period; i++) {
 
     const diff =
-      closes[i] - closes[i-1];
+      closes[i] - closes[i - 1];
 
-    if(diff >= 0){
+    if (diff >= 0) {
       gains += diff;
     } else {
       losses += Math.abs(diff);
     }
   }
 
-  let avgGain =
-    gains / period;
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
 
-  let avgLoss =
-    losses / period;
-
-  for(let i=period+1; i<closes.length; i++){
+  for (
+    let i = period + 1;
+    i < closes.length;
+    i++
+  ) {
 
     const diff =
-      closes[i] - closes[i-1];
+      closes[i] - closes[i - 1];
 
     const gain =
       diff > 0 ? diff : 0;
@@ -136,15 +133,19 @@ function RSI(closes, period=14){
       diff < 0 ? Math.abs(diff) : 0;
 
     avgGain =
-      ((avgGain * (period-1)) + gain)
-      / period;
+      (
+        avgGain * (period - 1) +
+        gain
+      ) / period;
 
     avgLoss =
-      ((avgLoss * (period-1)) + loss)
-      / period;
+      (
+        avgLoss * (period - 1) +
+        loss
+      ) / period;
   }
 
-  if(avgLoss === 0){
+  if (avgLoss === 0) {
     return 100;
   }
 
@@ -159,15 +160,15 @@ function RSI(closes, period=14){
 ATR
 ==================================================
 */
-function ATR(candles, period=14){
+function ATR(candles, period = 14) {
 
-  if(candles.length < period+1){
+  if (candles.length < period + 1) {
     return 0;
   }
 
   const trs = [];
 
-  for(let i=1; i<candles.length; i++){
+  for (let i = 1; i < candles.length; i++) {
 
     const high =
       parseFloat(candles[i].high);
@@ -176,14 +177,13 @@ function ATR(candles, period=14){
       parseFloat(candles[i].low);
 
     const prevClose =
-      parseFloat(candles[i-1].close);
+      parseFloat(candles[i - 1].close);
 
-    const tr =
-      Math.max(
-        high-low,
-        Math.abs(high-prevClose),
-        Math.abs(low-prevClose)
-      );
+    const tr = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    );
 
     trs.push(tr);
   }
@@ -192,34 +192,23 @@ function ATR(candles, period=14){
     trs.slice(-period);
 
   return (
-    recent.reduce((a,b)=>a+b,0)
+    recent.reduce((a, b) => a + b, 0)
     / period
   );
 }
 
 /*
 ==================================================
-MAIN HANDLER
+MAIN
 ==================================================
 */
 export default async function handler(
   req,
   res
-){
-
-  let telegramLogStatus =
-    "NO SIGNAL";
-
-  const instrumentId =
-    req.query.instrumentId || "686";
+) {
 
   try {
 
-    /*
-    ==============================================
-    ENV
-    ==============================================
-    */
     const API_KEY =
       process.env.ETORO_API_KEY;
 
@@ -232,104 +221,15 @@ export default async function handler(
     const CHAT_ID =
       process.env.TELEGRAM_CHAT_ID;
 
+    const instrumentId =
+      req.query.instrumentId || "686";
+
     const BASE_URL =
       "https://public-api.etoro.com/api/v1";
 
     /*
     ==============================================
-    INPUTS
-    ==============================================
-    */
-    const holding =
-      req.query.holding || "no";
-
-    const leverage =
-      parseFloat(req.query.leverage || 1);
-
-    const entryPrice =
-      parseFloat(req.query.entryPrice || 0);
-
-    const existingSL =
-      parseFloat(req.query.existingSL || 0);
-
-    const existingTP =
-      parseFloat(req.query.existingTP || 0);
-
-    const amountInvested =
-      parseFloat(req.query.amountInvested || 1000);
-
-    const updatePosition =
-      req.query.updatePosition === "true";
-
-    /*
-    ==============================================
-    LOAD REDIS STATE
-    ==============================================
-    */
-    let state =
-      await redis.get(
-        `position-${instrumentId}`
-      );
-
-    if(typeof state === "string"){
-
-      try{
-        state = JSON.parse(state);
-      } catch(e){
-        state = null;
-      }
-    }
-
-    if(!state){
-
-      state = {
-        holding:false,
-        entryPrice:0,
-        leverage:1,
-        amountInvested:1000,
-        existingSL:0,
-        existingTP:0,
-        lastSignal:"NONE"
-      };
-    }
-
-    /*
-    ==============================================
-    SAVE POSITION
-    ==============================================
-    */
-    if(updatePosition){
-
-      if(holding === "yes"){
-
-        state.holding = true;
-        state.entryPrice = entryPrice;
-        state.leverage = leverage;
-        state.amountInvested = amountInvested;
-        state.existingSL = existingSL;
-        state.existingTP = existingTP;
-
-      } else {
-
-        state.holding = false;
-        state.entryPrice = 0;
-        state.leverage = 1;
-        state.amountInvested = 0;
-        state.existingSL = 0;
-        state.existingTP = 0;
-      }
-
-      state.lastSignal = "NONE";
-
-      await redis.set(
-        `position-${instrumentId}`,
-        state
-      );
-    }
-
-    /*
-    ==============================================
-    FETCH LIVE DATA
+    LIVE RATES
     ==============================================
     */
     const liveResponse =
@@ -338,43 +238,33 @@ export default async function handler(
         `${BASE_URL}/market-data/instruments/rates?instrumentIds=${instrumentId}`,
 
         {
-          headers:{
-            "x-api-key":API_KEY,
-            "x-user-key":USER_KEY,
-            "x-request-id":uuidv4()
+          headers: {
+            "x-api-key": API_KEY,
+            "x-user-key": USER_KEY,
+            "x-request-id": uuidv4()
           }
         }
       );
 
-    if(!liveResponse.ok){
+    if (!liveResponse.ok) {
 
-      const errorText =
+      const txt =
         await liveResponse.text();
 
       throw new Error(
-        `Rates API failed ${liveResponse.status} - ${errorText}`
+        `Rates API ${liveResponse.status} ${txt}`
       );
     }
 
     const liveData =
       await liveResponse.json();
 
-    if(
-      !liveData.rates ||
-      liveData.rates.length === 0
-    ){
-
-      throw new Error(
-        "No live rates returned"
-      );
-    }
-
     const live =
       liveData.rates[0];
 
     /*
     ==============================================
-    FETCH CANDLES
+    CANDLES
     ==============================================
     */
     const candleResponse =
@@ -383,44 +273,34 @@ export default async function handler(
         `${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/OneDay/200`,
 
         {
-          headers:{
-            "x-api-key":API_KEY,
-            "x-user-key":USER_KEY,
-            "x-request-id":uuidv4()
+          headers: {
+            "x-api-key": API_KEY,
+            "x-user-key": USER_KEY,
+            "x-request-id": uuidv4()
           }
         }
       );
 
-    if(!candleResponse.ok){
+    if (!candleResponse.ok) {
 
-      const candleError =
+      const txt =
         await candleResponse.text();
 
       throw new Error(
-        `Candles API failed ${candleResponse.status} - ${candleError}`
+        `Candles API ${candleResponse.status} ${txt}`
       );
     }
 
     const candleData =
       await candleResponse.json();
 
-    if(
-      !candleData.candles ||
-      candleData.candles.length === 0 ||
-      !candleData.candles[0].candles
-    ){
-
-      throw new Error(
-        "Invalid candle structure"
-      );
-    }
-
     const candles =
       candleData.candles[0].candles;
 
-    candles.sort((a,b)=>
-      new Date(a.fromDate) -
-      new Date(b.fromDate)
+    candles.sort(
+      (a, b) =>
+        new Date(a.fromDate) -
+        new Date(b.fromDate)
     );
 
     const closes =
@@ -434,13 +314,13 @@ export default async function handler(
     ==============================================
     */
     const ema20 =
-      EMA(closes.slice(-20),20);
+      EMA(closes.slice(-20), 20);
 
     const ema50 =
-      EMA(closes.slice(-50),50);
+      EMA(closes.slice(-50), 50);
 
     const ema100 =
-      EMA(closes.slice(-100),100);
+      EMA(closes.slice(-100), 100);
 
     const rsi =
       RSI(closes);
@@ -451,35 +331,6 @@ export default async function handler(
     const currentPrice =
       parseFloat(live.lastExecution);
 
-    const ask =
-      parseFloat(live.ask);
-
-    const bid =
-      parseFloat(live.bid);
-
-    const spread =
-      ask - bid;
-
-    /*
-    ==============================================
-    TRENDS
-    ==============================================
-    */
-    const shortTrend =
-      currentPrice > ema20
-      ? "BULLISH"
-      : "BEARISH";
-
-    const midTrend =
-      ema20 > ema50
-      ? "BULLISH"
-      : "BEARISH";
-
-    const longTrend =
-      ema50 > ema100
-      ? "BULLISH"
-      : "BEARISH";
-
     /*
     ==============================================
     SIGNAL
@@ -487,165 +338,23 @@ export default async function handler(
     */
     let signal = "HOLD";
 
-    let confidence = 50;
-
-    if(
-      shortTrend==="BULLISH" &&
-      midTrend==="BULLISH" &&
-      longTrend==="BULLISH" &&
-      rsi>50 &&
-      rsi<68
-    ){
-
+    if (
+      currentPrice > ema20 &&
+      ema20 > ema50 &&
+      ema50 > ema100 &&
+      rsi > 50 &&
+      rsi < 68
+    ) {
       signal = "BUY";
-      confidence += 30;
     }
 
-    if(
-      shortTrend==="BEARISH" &&
-      midTrend==="BEARISH" &&
-      longTrend==="BEARISH" &&
-      rsi<40
-    ){
-
+    if (
+      currentPrice < ema20 &&
+      ema20 < ema50 &&
+      ema50 < ema100 &&
+      rsi < 40
+    ) {
       signal = "SELL";
-      confidence += 30;
-    }
-
-    /*
-    ==============================================
-    DURATION
-    ==============================================
-    */
-    let duration =
-      "INTRADAY";
-
-    if(
-      midTrend==="BULLISH" &&
-      longTrend==="BULLISH"
-    ){
-
-      duration = "SWING";
-    }
-
-    if(
-      Math.abs(ema20-ema100)>600
-    ){
-
-      duration = "POSITION";
-    }
-
-    /*
-    ==============================================
-    SL / TP
-    ==============================================
-    */
-    let stopLoss = 0;
-    let takeProfit = 0;
-
-    if(signal==="BUY"){
-
-      stopLoss =
-        currentPrice - (atr*1.5);
-
-      takeProfit =
-        currentPrice + (atr*3);
-
-    } else if(signal==="SELL"){
-
-      stopLoss =
-        currentPrice + (atr*1.5);
-
-      takeProfit =
-        currentPrice - (atr*3);
-
-    } else {
-
-      stopLoss =
-        currentPrice - (atr*2);
-
-      takeProfit =
-        currentPrice + (atr*2);
-    }
-
-    /*
-    ==============================================
-    RISK
-    ==============================================
-    */
-    const activeLeverage =
-      state.holding
-      ? state.leverage
-      : leverage;
-
-    let riskScore =
-      Math.min(
-        100,
-        Math.round(
-          40 +
-          (activeLeverage*5) +
-          (spread*0.01)
-        )
-      );
-
-    /*
-    ==============================================
-    POSITION ANALYSIS
-    ==============================================
-    */
-    let pnl = "--";
-    let exposure = "--";
-
-    let positionAdvice =
-      "NO OPEN POSITION";
-
-    if(
-      state.holding &&
-      state.entryPrice>0
-    ){
-
-      const percentMove =
-        (
-          currentPrice -
-          state.entryPrice
-        ) / state.entryPrice;
-
-      const pnlValue =
-        state.amountInvested *
-        percentMove *
-        state.leverage;
-
-      pnl =
-        pnlValue.toFixed(2);
-
-      exposure =
-        (
-          state.amountInvested *
-          state.leverage
-        ).toFixed(2);
-
-      positionAdvice =
-        signal==="SELL"
-        ? "CONSIDER EXIT"
-        : "HOLD POSITION";
-
-      if(
-        state.existingTP>0 &&
-        currentPrice>=state.existingTP
-      ){
-
-        positionAdvice =
-          "TAKE PROFIT HIT";
-      }
-
-      if(
-        state.existingSL>0 &&
-        currentPrice<=state.existingSL
-      ){
-
-        positionAdvice =
-          "STOP LOSS BREACHED";
-      }
     }
 
     /*
@@ -653,135 +362,48 @@ export default async function handler(
     TELEGRAM
     ==============================================
     */
-    let shouldNotify =
-      false;
+    try {
 
-    if(signal !== state.lastSignal){
+      await fetch(
 
-      if(
-        !state.holding &&
-        signal==="BUY"
-      ){
+        `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
 
-        shouldNotify = true;
-      }
+        {
+          method: "POST",
 
-      if(
-        state.holding &&
-        signal==="SELL"
-      ){
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
 
-        shouldNotify = true;
-      }
-
-      state.lastSignal = signal;
-    }
-
-    if(shouldNotify){
-
-      const message =
-`${signal} SIGNAL
-
-Instrument:
-${instrumentId}
-
-Price:
-${currentPrice.toFixed(2)}
-
-Confidence:
-${confidence}%
-
-RSI:
-${rsi.toFixed(2)}
-
-EMA20:
-${ema20.toFixed(2)}
-
-EMA50:
-${ema50.toFixed(2)}
-
-EMA100:
-${ema100.toFixed(2)}
-
-Duration:
-${duration}
-
-SL:
-${stopLoss.toFixed(2)}
-
-TP:
-${takeProfit.toFixed(2)}
-
-PnL:
-${pnl}
-`;
-
-      try {
-
-        const tgRes =
-          await fetchWithTimeout(
-
-            `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
-
-            {
-              method:"POST",
-
-              headers:{
-                "Content-Type":"application/json"
-              },
-
-              body:JSON.stringify({
-                chat_id:CHAT_ID,
-                text:message
-              })
-            }
-          );
-
-        if(tgRes.ok){
-
-          telegramLogStatus =
-            "TELEGRAM SENT";
-
-        } else {
-
-          telegramLogStatus =
-            `TELEGRAM FAILED ${tgRes.status}`;
+          body: JSON.stringify({
+            chat_id: CHAT_ID,
+            text:
+`${signal}
+Price: ${currentPrice}
+RSI: ${rsi.toFixed(2)}`
+          })
         }
+      );
 
-      } catch(tgErr){
+    } catch (e) {
 
-        telegramLogStatus =
-          `TELEGRAM ERROR ${tgErr.message}`;
-      }
+      console.log(
+        "Telegram failed",
+        e.message
+      );
     }
-
-    /*
-    ==============================================
-    SAVE STATE
-    ==============================================
-    */
-    await redis.set(
-      `position-${instrumentId}`,
-      state
-    );
 
     /*
     ==============================================
     AUDIT LOG
     ==============================================
     */
-    const formattedDate =
-      new Date()
-      .toISOString()
-      .replace("T"," ")
-      .substring(0,19);
-
-    const logString =
-`${formattedDate} | ID:${instrumentId} | SIGNAL:${signal} | PRICE:${currentPrice.toFixed(2)} | RSI:${rsi.toFixed(2)} | TG:${telegramLogStatus}`;
-
     await redis.lpush(
+
       "system-audit-logs",
-      logString
+
+      `${new Date().toISOString()} | ${signal} | ${currentPrice}`
     );
 
     await redis.ltrim(
@@ -802,15 +424,6 @@ ${pnl}
       price:
         currentPrice.toFixed(2),
 
-      ask:
-        ask.toFixed(2),
-
-      bid:
-        bid.toFixed(2),
-
-      spread:
-        spread.toFixed(2),
-
       ema20:
         ema20.toFixed(2),
 
@@ -824,99 +437,19 @@ ${pnl}
         rsi.toFixed(2),
 
       atr:
-        atr.toFixed(2),
-
-      confidence:
-        confidence+"%",
-
-      duration,
-
-      riskScore:
-        riskScore+"/100",
-
-      entry:
-        currentPrice.toFixed(2),
-
-      stopLoss:
-        stopLoss.toFixed(2),
-
-      takeProfit:
-        takeProfit.toFixed(2),
-
-      shortTrend,
-
-      midTrend,
-
-      longTrend,
-
-      holding:
-        state.holding,
-
-      entryPrice:
-        state.entryPrice,
-
-      leverage:
-        state.leverage,
-
-      amountInvested:
-        state.amountInvested,
-
-      existingSL:
-        state.existingSL,
-
-      existingTP:
-        state.existingTP,
-
-      pnl,
-
-      exposure,
-
-      positionAdvice,
-
-      telegramLogStatus
+        atr.toFixed(2)
     });
 
-  } catch(err) {
+  } catch (err) {
 
-    console.error(
-      "Fatal Runtime Error:",
+    console.log(
+      "FATAL ERROR:",
       err
     );
 
-    try {
-
-      const formattedDate =
-        new Date()
-        .toISOString()
-        .replace('T', ' ')
-        .substring(0, 19);
-
-      const errorLogString =
-`${formattedDate} | ERROR | ID:${instrumentId} | ${String(err.message)}`;
-
-      await redis.lpush(
-        "system-audit-logs",
-        errorLogString
-      );
-
-      await redis.ltrim(
-        "system-audit-logs",
-        0,
-        99
-      );
-
-    } catch(e) {
-
-      console.error(
-        "Redis logging failure:",
-        e
-      );
-    }
-
     return res.status(500).json({
-      success:false,
-      error:String(err.message),
-      stack:err?.stack
+      success: false,
+      error: err.message
     });
   }
 }
