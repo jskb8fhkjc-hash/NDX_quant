@@ -317,6 +317,50 @@ const REFRESH_INTERVAL = 1000 * 60 * 15;
 setInterval(() => {
   runAnalysis(false);
 }, REFRESH_INTERVAL);
+
+// FETCH AND EXPOSE CLOUD LOGS WITHIN THE TERMINAL CONSOLE
+async function renderSystemLogsTrail() {
+  const consoleDisplay = document.getElementById("systemAuditTerminalLogs");
+  if (!consoleDisplay) return;
+
+  try {
+    const trackingPayload = await fetch('/api/logs');
+    const logsResult = await trackingPayload.json();
+
+    if (logsResult.success && logsResult.logs && logsResult.logs.length > 0) {
+      consoleDisplay.innerHTML = logsResult.logs.map(entry => {
+        const localFormattedTime = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const entryTriggerMode = entry.trigger === "AUTOMATED_CRON" ? "⏰ CLOUD_CRON" : "💻 MANUAL_DASH";
+        
+        if (entry.signal === "ERROR") {
+          return `<span style="color: #f44336;">[${localFormattedTime}] ${entryTriggerMode} | CRITICAL EXCEPTION ERR: ${entry.errorDetails}</span>`;
+        }
+        
+        let labelColor = "#ffffff";
+        if (entry.signal === "BUY") labelColor = "#4caf50";
+        if (entry.signal === "SELL") labelColor = "#ff9800";
+        if (entry.signal === "HOLD") labelColor = "#2196f3";
+
+        return `[${localFormattedTime}] ${entryTriggerMode} | Asset: ${entry.instrumentId} | Price: $${entry.price} | RSI: ${entry.rsi} | Signal: <strong style="color: ${labelColor};">${entry.signal}</strong> | Telegram: <em>${entry.telegramStatus}</em>`;
+      }).join("\n");
+    } else {
+      consoleDisplay.innerHTML = "No audit log history entries recorded inside the active ledger stack yet.";
+    }
+  } catch (err) {
+    consoleDisplay.innerHTML = `System log interface loading engine error anomaly: ${err.message}`;
+  }
+}
+
+// Hook log loader into your page's existing runAnalysis pipeline wrapper logic
+const initialRunAnalysisWrapper = window.runAnalysis || function(){};
+window.runAnalysis = async function(...args) {
+  await initialRunAnalysisWrapper(...args);
+  setTimeout(renderSystemLogsTrail, 1500);
+};
+
+// Initialize logs instantly when page content maps to screen frameworks
+window.addEventListener('DOMContentLoaded', renderSystemLogsTrail);
+ 
 </script>
 </body>
 </html>
