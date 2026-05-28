@@ -175,9 +175,7 @@ export default async function handler(req, res){
         state.existingTP = 0;
       }
       
-      // FIX: Force reset the saved signal memory context when position parameters shift.
       state.lastSignal = "NONE";
-      
       await redis.set(`position-${instrumentId}`, state);
     }
 
@@ -324,7 +322,7 @@ export default async function handler(req, res){
 
     /*
     ==================================================
-    TELEGRAM EXECUTOR WEBHOOK (FIXED CONDITIONAL)
+    TELEGRAM EXECUTOR WEBHOOK
     ==================================================
     */
     let shouldNotify = false;
@@ -368,7 +366,6 @@ export default async function handler(req, res){
     const formattedDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
     const logString = `${formattedDate} | ${isCronTrigger ? "AUTOMATED_CRON" : "MANUAL_DASHBOARD"} | ID: ${instrumentId} | Price: ${currentPrice.toFixed(2)} | RSI: ${rsi.toFixed(2)} | ${signal}`;
 
-    // Save pure string representation directly into Redis list array
     await redis.lpush("system-audit-logs", logString);
     await redis.ltrim("system-audit-logs", 0, 99);
 
