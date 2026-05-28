@@ -291,14 +291,6 @@ async function runAnalysis(updatePosition=false){
   }
 }
 
-// Initial script execution triggering
-runAnalysis(false);
-
-const REFRESH_INTERVAL = 1000 * 60 * 15;
-setInterval(() => {
-  runAnalysis(false);
-}, REFRESH_INTERVAL);
-
 // ==========================================
 // NEW JAVASCRIPT LOG ENGINES (Step 4B)
 // ==========================================
@@ -334,15 +326,25 @@ async function renderSystemLogsTrail() {
   }
 }
 
-// Hook log loader into your page's existing runAnalysis pipeline wrapper logic
-const initialRunAnalysisWrapper = window.runAnalysis || function(){};
-window.runAnalysis = async function(...args) {
-  await initialRunAnalysisWrapper(...args);
+// Intercept runAnalysis to cleanly reload logs upon routine finish phases
+const initialRunAnalysisWrapper = runAnalysis;
+runAnalysis = async function(updatePosition=false) {
+  await initialRunAnalysisWrapper(updatePosition);
   setTimeout(renderSystemLogsTrail, 1500);
 };
 
 // Initialize logs instantly when page content maps to screen frameworks
 window.addEventListener('DOMContentLoaded', renderSystemLogsTrail);
+
+// ==========================================
+// INITIAL EXECUTION ROUTINES & INTERVALS
+// ==========================================
+runAnalysis(false);
+
+const REFRESH_INTERVAL = 1000 * 60 * 15;
+setInterval(() => {
+  runAnalysis(false);
+}, REFRESH_INTERVAL);
 </script>
 </body>
 </html>
