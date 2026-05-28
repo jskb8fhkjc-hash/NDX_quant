@@ -1,5 +1,3 @@
-Here is your updated file. I have carefully integrated the **Security/Context Check** at the top of the handler to ensure that cron-job.org can pass right through, added the **exact frontend matching format for the Audit Log** inside the success pipeline, and included a defensive try/catch fallback logging block inside the final error handler so a failure never prints an invalid pattern to your screen again.
-```javascript
 import { Redis } from "@upstash/redis";
 
 /*
@@ -432,5 +430,3 @@ export default async function handler(req, res){
     });
   }
 }
-
-```
