@@ -526,6 +526,8 @@ value ?? "--";
 
 }
 
+}
+
 /*
 ==================================================
 POSITION MEMORY
@@ -600,6 +602,77 @@ JSON.stringify(position || readPositionForm())
 
 }
 
+async function savePositionToRedis(position){
+
+const instrumentId =
+encodeURIComponent(
+document.getElementById("instrumentInput").value || "686"
+);
+
+const response =
+await fetch(
+`/api/position?instrumentId=${instrumentId}`,
+{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:
+JSON.stringify(position || readPositionForm())
+}
+);
+
+const data =
+await response.json();
+
+if(!response.ok || !data.success){
+
+throw new Error(
+data.error || `HTTP ${response.status}`
+);
+
+}
+
+return data.position;
+
+}
+
+async function loadPositionFromRedis(){
+
+const instrumentId =
+encodeURIComponent(
+document.getElementById("instrumentInput").value || "686"
+);
+
+const response =
+await fetch(
+`/api/position?instrumentId=${instrumentId}`
+);
+
+const data =
+await response.json();
+
+if(!response.ok || !data.success){
+
+throw new Error(
+data.error || `HTTP ${response.status}`
+);
+
+}
+
+if(data.position){
+
+applyPositionForm(data.position);
+savePositionToBrowser(data.position);
+log("Loaded saved position from Redis");
+return true;
+
+}
+
+return false;
+
+}
+
 function loadPositionFromBrowser(){
 
 try{
@@ -625,8 +698,6 @@ console.error(err);
 
 }
 
-}
-
 /*
 ==================================================
 SAVE POSITION
@@ -635,13 +706,25 @@ SAVE POSITION
 
 async function savePosition(){
 
+try{
+
 log("Saving position...");
 
-savePositionToBrowser();
+const savedPosition =
+await savePositionToRedis();
 
-await triggerAnalysisPipeline(true);
+savePositionToBrowser(savedPosition);
+
+await triggerAnalysisPipeline(false,true);
 
 log("Position saved");
+
+}catch(err){
+
+console.error(err);
+log(`Position save failed: ${err.message}`);
+
+}
 
 }
 
@@ -953,9 +1036,24 @@ INITIAL LOAD
 
 window.addEventListener(
 "DOMContentLoaded",
-() => {
+async () => {
 
+try{
+
+const loadedFromRedis =
+await loadPositionFromRedis();
+
+if(!loadedFromRedis){
 loadPositionFromBrowser();
+}
+
+}catch(err){
+
+console.error(err);
+log(`Redis position load failed: ${err.message}`);
+loadPositionFromBrowser();
+
+}
 
 triggerAnalysisPipeline(false,true);
 
