@@ -16,8 +16,11 @@ function uuidv4() {
     });
 }
 
-const MIN_SIGNAL_SCORE =
+const DEFAULT_MIN_SIGNAL_SCORE =
   70;
+
+const LIMITED_HISTORY_MIN_SIGNAL_SCORE =
+  60;
 
 const MIN_ATR_PERCENT =
   0.25;
@@ -172,7 +175,11 @@ function getCandlesFromResponse(candleData){
     );
 }
 
-function analyzeDailySetup(candles, spreadPercent){
+function analyzeDailySetup(
+  candles,
+  spreadPercent,
+  minSignalScore
+){
   const closes =
     candles.map(c => c.close);
 
@@ -185,8 +192,13 @@ function analyzeDailySetup(candles, spreadPercent){
   const ema50 =
     EMA(closes.slice(-50),50);
 
+  const hasEma100 =
+    closes.length >= 100;
+
   const ema100 =
-    EMA(closes.slice(-100),100);
+    hasEma100
+    ? EMA(closes.slice(-100),100)
+    : null;
 
   const rsi =
     RSI(closes);
@@ -202,12 +214,18 @@ function analyzeDailySetup(candles, spreadPercent){
   const bullishTrend =
     currentPrice > ema20 &&
     ema20 > ema50 &&
-    ema50 > ema100;
+    (
+      !hasEma100 ||
+      ema50 > ema100
+    );
 
   const bearishTrend =
     currentPrice < ema20 &&
     ema20 < ema50 &&
-    ema50 < ema100;
+    (
+      !hasEma100 ||
+      ema50 < ema100
+    );
 
   const momentumUp =
     closes[closes.length - 1] >
@@ -259,7 +277,7 @@ function analyzeDailySetup(candles, spreadPercent){
 
   if(
     buyScore >= sellScore &&
-    buyScore >= MIN_SIGNAL_SCORE
+    buyScore >= minSignalScore
   ){
     return {
       signal:"BUY",
@@ -268,7 +286,7 @@ function analyzeDailySetup(candles, spreadPercent){
     };
   }
 
-  if(sellScore >= MIN_SIGNAL_SCORE){
+  if(sellScore >= minSignalScore){
     return {
       signal:"SELL",
       score:sellScore,
@@ -400,16 +418,61 @@ export default async function handler(req,res){
     const candles =
       getCandlesFromResponse(candleData);
 
-    if(candles.length < 140 + horizonDays){
-      throw new Error("Not enough candle history for backtest");
+    const minimumCandles =
+      60 + horizonDays;
+
+    if(candles.length < minimumCandles){
+      return res.status(200).json({
+        success:true,
+        instrumentId,
+        horizonDays,
+        candlesTested:
+          candles.length,
+        totalSignals:0,
+        buySignals:0,
+        sellSignals:0,
+        wins:0,
+        losses:0,
+        winRate:"0.0%",
+        averageReturn:"0.00%",
+        cumulativeReturn:"0.00%",
+        maxDrawdown:"0.00%",
+        dataWarning:
+          `Only ${candles.length} daily candles returned. Need at least ${minimumCandles} to run even a reduced backtest.`,
+        recentTrades:[]
+      });
     }
+
+    const hasFullHistory =
+      candles.length >= 140 + horizonDays;
+
+    const warmupCandles =
+      hasFullHistory
+      ? 120
+      : Math.max(
+        50,
+        Math.min(
+          80,
+          candles.length - horizonDays - 10
+        )
+      );
+
+    const minSignalScore =
+      hasFullHistory
+      ? DEFAULT_MIN_SIGNAL_SCORE
+      : LIMITED_HISTORY_MIN_SIGNAL_SCORE;
+
+    const dataWarning =
+      hasFullHistory
+      ? null
+      : `Limited history mode: ${candles.length} daily candles returned, so the backtest used EMA20/EMA50 with a lower score threshold. Treat this as weaker evidence.`;
 
     const trades = [];
     const equityCurve = [0];
     let cumulativeReturn = 0;
 
     for(
-      let i=120;
+      let i=warmupCandles;
       i<candles.length - horizonDays;
       i++
     ){
@@ -419,7 +482,8 @@ export default async function handler(req,res){
       const setup =
         analyzeDailySetup(
           setupCandles,
-          spreadPercent
+          spreadPercent,
+          minSignalScore
         );
 
       if(setup.signal === "HOLD"){
@@ -488,6 +552,9 @@ export default async function handler(req,res){
       horizonDays,
       candlesTested:
         candles.length,
+      warmupCandles,
+      minSignalScore,
+      dataWarning,
       totalSignals:
         trades.length,
       buySignals:

@@ -519,6 +519,11 @@ Max Drawdown:
 <span id="backtestMaxDrawdown">--</span>
 </div>
 
+<div class="metric">
+Data Note:
+<span id="backtestDataWarning">--</span>
+</div>
+
 <pre
 id="backtestTrades"
 class="auditTerminal"
@@ -1102,6 +1107,7 @@ setValue("backtestWinRate",result.winRate);
 setValue("backtestAverageReturn",result.averageReturn);
 setValue("backtestCumulativeReturn",result.cumulativeReturn);
 setValue("backtestMaxDrawdown",result.maxDrawdown);
+setValue("backtestDataWarning",result.dataWarning || "OK");
 
 if(
 Array.isArray(result.recentTrades) &&
@@ -1131,6 +1137,7 @@ setValue("backtestWinRate","--");
 setValue("backtestAverageReturn","--");
 setValue("backtestCumulativeReturn","--");
 setValue("backtestMaxDrawdown","--");
+setValue("backtestDataWarning","--");
 
 tradesDisplay.innerHTML =
 `Backtest error: ${err.message}`;
