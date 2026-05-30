@@ -295,6 +295,11 @@ Confidence:
 </div>
 
 <div class="metric">
+Signal Score:
+<span id="signalScore">--</span>
+</div>
+
+<div class="metric">
 Trade Duration:
 <span id="duration">--</span>
 </div>
@@ -480,6 +485,46 @@ Exposure:
 Advice:
 <span id="positionAdvice">--</span>
 </div>
+
+</div>
+
+<div class="card">
+
+<h2 style="margin-bottom:16px;">
+Backtest Quality
+</h2>
+
+<div class="metric">
+Signals Tested:
+<span id="backtestSignals">--</span>
+</div>
+
+<div class="metric">
+Win Rate:
+<span id="backtestWinRate">--</span>
+</div>
+
+<div class="metric">
+Average Return:
+<span id="backtestAverageReturn">--</span>
+</div>
+
+<div class="metric">
+Cumulative Return:
+<span id="backtestCumulativeReturn">--</span>
+</div>
+
+<div class="metric">
+Max Drawdown:
+<span id="backtestMaxDrawdown">--</span>
+</div>
+
+<pre
+id="backtestTrades"
+class="auditTerminal"
+>
+Loading backtest...
+</pre>
 
 </div>
 
@@ -954,6 +999,7 @@ UPDATE UI
 */
 
 setValue("confidence",data.confidence);
+setValue("signalScore",data.signalScore);
 setValue("duration",data.duration);
 
 setValue("shortTrend",data.shortTrend);
@@ -1010,6 +1056,84 @@ runBtn.disabled = false;
 document.body.classList.remove(
 "loading"
 );
+
+}
+
+}
+
+/*
+==================================================
+BACKTEST RENDERER
+==================================================
+*/
+
+async function renderBacktestQuality(){
+
+const tradesDisplay =
+document.getElementById("backtestTrades");
+
+if(!tradesDisplay){
+return;
+}
+
+try{
+
+const instrumentId =
+encodeURIComponent(
+document.getElementById("instrumentInput").value || "686"
+);
+
+const response =
+await fetch(`/api/backtest?instrumentId=${instrumentId}`);
+
+const result =
+await response.json();
+
+if(!response.ok || !result.success){
+
+throw new Error(
+result.error || `HTTP ${response.status}`
+);
+
+}
+
+setValue("backtestSignals",result.totalSignals);
+setValue("backtestWinRate",result.winRate);
+setValue("backtestAverageReturn",result.averageReturn);
+setValue("backtestCumulativeReturn",result.cumulativeReturn);
+setValue("backtestMaxDrawdown",result.maxDrawdown);
+
+if(
+Array.isArray(result.recentTrades) &&
+result.recentTrades.length > 0
+){
+
+tradesDisplay.innerHTML =
+result.recentTrades.map(trade => {
+
+return `${trade.date} | ${trade.signal} | Score ${trade.score} | ${trade.returnPercent}%`;
+
+}).join("\n");
+
+}else{
+
+tradesDisplay.innerHTML =
+"No historical signals passed the score threshold.";
+
+}
+
+}catch(err){
+
+console.error(err);
+
+setValue("backtestSignals","--");
+setValue("backtestWinRate","--");
+setValue("backtestAverageReturn","--");
+setValue("backtestCumulativeReturn","--");
+setValue("backtestMaxDrawdown","--");
+
+tradesDisplay.innerHTML =
+`Backtest error: ${err.message}`;
 
 }
 
@@ -1182,6 +1306,7 @@ setTimeout(() => {
 
 renderSystemLogsTrail();
 renderSignalHistory();
+renderBacktestQuality();
 
 },1000);
 
@@ -1218,6 +1343,7 @@ triggerAnalysisPipeline(false,true);
 
 renderSystemLogsTrail();
 renderSignalHistory();
+renderBacktestQuality();
 
 }
 );

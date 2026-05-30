@@ -51,6 +51,9 @@ const MIN_RISK_REWARD =
 const TRAILING_ATR_MULTIPLIER =
   2;
 
+const MIN_SIGNAL_SCORE =
+  70;
+
 /*
 ==================================================
 FETCH WITH TIMEOUT
@@ -291,6 +294,88 @@ function isCooldownActive(lastSentAt){
   }
 
   return Date.now() - Number(lastSentAt) < TELEGRAM_COOLDOWN_MS;
+}
+
+function buildSignalScore({
+  direction,
+  oneHourTrend,
+  fourHourTrend,
+  oneDayTrend,
+  rsi,
+  atrPercent,
+  spreadPercent,
+  riskRewardRatio
+}){
+  const factors = [];
+  let score = 0;
+
+  function addFactor(name, points, passed){
+    factors.push({
+      name,
+      points:
+        passed ? points : 0,
+      maxPoints:
+        points,
+      passed
+    });
+
+    if(passed){
+      score += points;
+    }
+  }
+
+  addFactor(
+    "1H trend aligned",
+    15,
+    oneHourTrend.alignedTrend === direction
+  );
+
+  addFactor(
+    "4H trend aligned",
+    20,
+    fourHourTrend.alignedTrend === direction
+  );
+
+  addFactor(
+    "Daily trend aligned",
+    25,
+    oneDayTrend.alignedTrend === direction
+  );
+
+  addFactor(
+    "RSI in signal zone",
+    15,
+    direction === "BUY"
+    ? rsi > 50 && rsi < 68
+    : rsi < 40
+  );
+
+  addFactor(
+    "ATR tradable",
+    10,
+    atrPercent >= MIN_ATR_PERCENT &&
+    atrPercent <= MAX_ATR_PERCENT
+  );
+
+  addFactor(
+    "Spread acceptable",
+    10,
+    spreadPercent <= MAX_SPREAD_PERCENT
+  );
+
+  addFactor(
+    "Risk/reward acceptable",
+    5,
+    riskRewardRatio >= MIN_RISK_REWARD
+  );
+
+  return {
+    score,
+    direction,
+    factors,
+    passed:
+      score >= MIN_SIGNAL_SCORE
+  };
 }
 
 /*
@@ -731,7 +816,6 @@ export default async function handler(req,res){
       signal !== "HOLD" &&
       (!spreadOk || !atrOk)
     ){
-      signal = "HOLD";
       confidence =
         Math.max(35, confidence - 25);
     }
@@ -804,6 +888,49 @@ export default async function handler(req,res){
       riskDistance > 0
       ? rewardDistance / riskDistance
       : 0;
+
+    const buySignalScore =
+      buildSignalScore({
+        direction:"BULLISH",
+        oneHourTrend,
+        fourHourTrend,
+        oneDayTrend,
+        rsi,
+        atrPercent,
+        spreadPercent,
+        riskRewardRatio
+      });
+
+    const sellSignalScore =
+      buildSignalScore({
+        direction:"BEARISH",
+        oneHourTrend,
+        fourHourTrend,
+        oneDayTrend,
+        rsi,
+        atrPercent,
+        spreadPercent,
+        riskRewardRatio
+      });
+
+    const signalScore =
+      buySignalScore.score >= sellSignalScore.score
+      ? buySignalScore
+      : sellSignalScore;
+
+    signal =
+      signalScore.passed
+      ? signalScore.direction === "BULLISH"
+        ? "BUY"
+        : "SELL"
+      : "HOLD";
+
+    confidence =
+      signalScore.score;
+
+    if(!signalScore.passed){
+      signalWarnings.push("SCORE BELOW THRESHOLD");
+    }
 
     if(
       signal !== "HOLD" &&
@@ -1077,6 +1204,9 @@ export default async function handler(req,res){
 
       trailingStopLoss,
 
+      signalScore:
+        signalScore.score,
+
       warnings:
         signalWarnings
     };
@@ -1116,6 +1246,12 @@ export default async function handler(req,res){
 
       confidence:
         confidence+"%",
+
+      signalScore:
+        signalScore.score+"/100",
+
+      signalScoreFactors:
+        signalScore.factors,
 
       duration,
 
