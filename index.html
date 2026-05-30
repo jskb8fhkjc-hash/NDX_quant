@@ -375,6 +375,16 @@ Spread:
 <span id="spread">--</span>
 </div>
 
+<div class="metric">
+Spread %:
+<span id="spreadPercent">--</span>
+</div>
+
+<div class="metric">
+ATR %:
+<span id="atrPercent">--</span>
+</div>
+
 </div>
 
 <div class="card">
@@ -403,6 +413,16 @@ Risk Score:
 <span id="risk">--</span>
 </div>
 
+<div class="metric">
+Risk / Reward:
+<span id="riskReward">--</span>
+</div>
+
+<div class="metric">
+Signal Quality:
+<span id="signalQuality">--</span>
+</div>
+
 </div>
 
 <div class="card">
@@ -425,6 +445,21 @@ Exposure:
 Advice:
 <span id="positionAdvice">--</span>
 </div>
+
+</div>
+
+<div class="card">
+
+<h2 style="margin-bottom:16px;">
+Signal History
+</h2>
+
+<pre
+id="signalHistory"
+class="auditTerminal"
+>
+Loading signal history...
+</pre>
 
 </div>
 
@@ -901,12 +936,16 @@ setValue("ema100",data.ema100);
 setValue("rsi",data.rsi);
 setValue("atr",data.atr);
 setValue("spread",data.spread);
+setValue("spreadPercent",data.spreadPercent);
+setValue("atrPercent",data.atrPercent);
 
 setValue("entry",data.entry);
 setValue("sl",data.stopLoss);
 setValue("tp",data.takeProfit);
 
 setValue("risk",data.riskScore);
+setValue("riskReward",data.riskRewardRatio);
+setValue("signalQuality",data.signalQuality);
 
 setValue("pnl",data.pnl);
 setValue("exposure",data.exposure);
@@ -929,6 +968,83 @@ runBtn.disabled = false;
 document.body.classList.remove(
 "loading"
 );
+
+}
+
+}
+
+/*
+==================================================
+SIGNAL HISTORY RENDERER
+==================================================
+*/
+
+async function renderSignalHistory(){
+
+const historyDisplay =
+document.getElementById("signalHistory");
+
+if(!historyDisplay){
+return;
+}
+
+try{
+
+const instrumentId =
+encodeURIComponent(
+document.getElementById("instrumentInput").value || "686"
+);
+
+const response =
+await fetch(`/api/history?instrumentId=${instrumentId}`);
+
+if(!response.ok){
+
+throw new Error(
+`HTTP ${response.status}`
+);
+
+}
+
+const result =
+await response.json();
+
+if(
+result.success &&
+Array.isArray(result.history) &&
+result.history.length > 0
+){
+
+historyDisplay.innerHTML =
+result.history.map(entry => {
+
+if(!entry || typeof entry !== "object"){
+return "Invalid history entry";
+}
+
+const warnings =
+Array.isArray(entry.warnings) &&
+entry.warnings.length
+? ` | ${entry.warnings.join(", ")}`
+: "";
+
+return `${entry.time} | ${entry.signal} | ${entry.price} | RSI ${entry.rsi} | RR ${entry.riskRewardRatio}${warnings}`;
+
+}).join("\n");
+
+}else{
+
+historyDisplay.innerHTML =
+"No signal history yet.";
+
+}
+
+}catch(err){
+
+console.error(err);
+
+historyDisplay.innerHTML =
+`Signal history error: ${err.message}`;
 
 }
 
@@ -1023,6 +1139,7 @@ loadSavedPosition
 setTimeout(() => {
 
 renderSystemLogsTrail();
+renderSignalHistory();
 
 },1000);
 
@@ -1058,6 +1175,7 @@ loadPositionFromBrowser();
 triggerAnalysisPipeline(false,true);
 
 renderSystemLogsTrail();
+renderSignalHistory();
 
 }
 );

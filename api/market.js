@@ -33,6 +33,21 @@ const redis = new Redis({
     process.env.UPSTASH_REDIS_REST_TOKEN
 });
 
+const TELEGRAM_COOLDOWN_MS =
+  1000 * 60 * 60 * 4;
+
+const MAX_SPREAD_PERCENT =
+  0.15;
+
+const MIN_ATR_PERCENT =
+  0.25;
+
+const MAX_ATR_PERCENT =
+  6;
+
+const MIN_RISK_REWARD =
+  1.5;
+
 /*
 ==================================================
 FETCH WITH TIMEOUT
@@ -190,6 +205,14 @@ function ATR(candles, period=14){
   return recent.reduce((a,b)=>a+b,0)/period;
 }
 
+function isCooldownActive(lastSentAt){
+  if(!lastSentAt){
+    return false;
+  }
+
+  return Date.now() - Number(lastSentAt) < TELEGRAM_COOLDOWN_MS;
+}
+
 /*
 ==================================================
 MAIN HANDLER
@@ -314,7 +337,8 @@ export default async function handler(req,res){
     let signalState =await redis.get(signalStateKey);
     if(!signalState){
       signalState = {
-        lastTelegramSignal:"NONE"
+        lastTelegramSignal:"NONE",
+        lastTelegramAt:0
       };
     }
     /*
@@ -471,6 +495,16 @@ export default async function handler(req,res){
     const spread =
       ask - bid;
 
+    const spreadPercent =
+      currentPrice > 0
+      ? (spread / currentPrice) * 100
+      : 0;
+
+    const atrPercent =
+      currentPrice > 0
+      ? (atr / currentPrice) * 100
+      : 0;
+
     /*
     ==============================================
     TRENDS
@@ -498,6 +532,7 @@ export default async function handler(req,res){
     */
     let signal = "HOLD";
     let confidence = 50;
+    const signalWarnings = [];
 
     if(
       shortTrend==="BULLISH" &&
@@ -508,6 +543,30 @@ export default async function handler(req,res){
     ){
       signal = "BUY";
       confidence += 30;
+    }
+
+    const spreadOk =
+      spreadPercent <= MAX_SPREAD_PERCENT;
+
+    const atrOk =
+      atrPercent >= MIN_ATR_PERCENT &&
+      atrPercent <= MAX_ATR_PERCENT;
+
+    if(!spreadOk){
+      signalWarnings.push("SPREAD TOO WIDE");
+    }
+
+    if(!atrOk){
+      signalWarnings.push("ATR OUTSIDE RANGE");
+    }
+
+    if(
+      signal !== "HOLD" &&
+      (!spreadOk || !atrOk)
+    ){
+      signal = "HOLD";
+      confidence =
+        Math.max(35, confidence - 25);
     }
 
     if(
@@ -570,6 +629,27 @@ export default async function handler(req,res){
       signal==="BUY"
       ? currentPrice + atr*3
       : currentPrice - atr*3;
+
+    const riskDistance =
+      Math.abs(currentPrice - stopLoss) + spread;
+
+    const rewardDistance =
+      Math.abs(takeProfit - currentPrice);
+
+    const riskRewardRatio =
+      riskDistance > 0
+      ? rewardDistance / riskDistance
+      : 0;
+
+    if(
+      signal !== "HOLD" &&
+      riskRewardRatio < MIN_RISK_REWARD
+    ){
+      signalWarnings.push("RISK/REWARD TOO LOW");
+      signal = "HOLD";
+      confidence =
+        Math.max(35, confidence - 20);
+    }
 
     let riskScore =
       Math.round(
@@ -637,6 +717,8 @@ export default async function handler(req,res){
     */
 
     let shouldSendTelegram = false;
+    const telegramCooldownActive =
+      isCooldownActive(signalState.lastTelegramAt);
 
     /*
     NOT HOLDING
@@ -671,6 +753,10 @@ export default async function handler(req,res){
 
       signalState.lastTelegramSignal === signal
     ){
+      shouldSendTelegram = false;
+    }
+
+    if(telegramCooldownActive){
       shouldSendTelegram = false;
     }
 
@@ -709,6 +795,9 @@ export default async function handler(req,res){
         signalState.lastTelegramSignal =
           signal;
 
+        signalState.lastTelegramAt =
+          Date.now();
+
         await redis.set(signalStateKey,signalState);
       } catch(e){
 
@@ -720,18 +809,59 @@ export default async function handler(req,res){
     ==============================================
     */
     const logEntry =
-`${new Date().toISOString()} | ${signal} | ${currentPrice.toFixed(2)} | RSI ${rsi.toFixed(2)}`;
+`${new Date().toISOString()} | ${signal} | ${currentPrice.toFixed(2)} | RSI ${rsi.toFixed(2)} | Spread ${spreadPercent.toFixed(3)}% | ATR ${atrPercent.toFixed(3)}% | RR ${riskRewardRatio.toFixed(2)}`;
 
-    await redis.lpush(
-      "system-audit-logs",
-      logEntry
-    );
+    const signalHistoryEntry = {
+      time:
+        new Date().toISOString(),
 
-    await redis.ltrim(
-      "system-audit-logs",
-      0,
-      99
-    );
+      instrumentId,
+      signal,
+      confidence:
+        confidence+"%",
+
+      price:
+        currentPrice.toFixed(2),
+
+      rsi:
+        rsi.toFixed(2),
+
+      spreadPercent:
+        spreadPercent.toFixed(3),
+
+      atrPercent:
+        atrPercent.toFixed(3),
+
+      riskRewardRatio:
+        riskRewardRatio.toFixed(2),
+
+      warnings:
+        signalWarnings
+    };
+
+    await Promise.all([
+      redis.lpush(
+        "system-audit-logs",
+        logEntry
+      ),
+
+      redis.ltrim(
+        "system-audit-logs",
+        0,
+        99
+      ),
+
+      redis.lpush(
+        `signal-history-${instrumentId}`,
+        signalHistoryEntry
+      ),
+
+      redis.ltrim(
+        `signal-history-${instrumentId}`,
+        0,
+        49
+      )
+    ]);
 
     /*
     ==============================================
@@ -763,6 +893,9 @@ export default async function handler(req,res){
       spread:
         spread.toFixed(2),
 
+      spreadPercent:
+        spreadPercent.toFixed(3)+"%",
+
       ema20:
         ema20.toFixed(2),
 
@@ -778,6 +911,9 @@ export default async function handler(req,res){
       atr:
         atr.toFixed(2),
 
+      atrPercent:
+        atrPercent.toFixed(3)+"%",
+
       entry:
         currentPrice.toFixed(2),
 
@@ -789,6 +925,17 @@ export default async function handler(req,res){
 
       riskScore:
         riskScore+"/100",
+
+      riskRewardRatio:
+        riskRewardRatio.toFixed(2),
+
+      signalQuality:
+        signalWarnings.length
+        ? signalWarnings.join(", ")
+        : "OK",
+
+      telegramCooldown:
+        telegramCooldownActive,
 
       pnl,
       exposure,
