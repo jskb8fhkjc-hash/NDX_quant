@@ -322,6 +322,26 @@ Long Trend:
 <span id="longTrend">--</span>
 </div>
 
+<div class="metric">
+1H Trend:
+<span id="oneHourTrend">--</span>
+</div>
+
+<div class="metric">
+4H Trend:
+<span id="fourHourTrend">--</span>
+</div>
+
+<div class="metric">
+Daily Trend:
+<span id="oneDayTrend">--</span>
+</div>
+
+<div class="metric">
+Multi-Timeframe:
+<span id="multiTimeframeTrend">--</span>
+</div>
+
 </div>
 
 <div class="card">
@@ -399,6 +419,11 @@ Entry:
 </div>
 
 <div class="metric">
+Plan Direction:
+<span id="tradePlanDirection">--</span>
+</div>
+
+<div class="metric">
 Stop Loss:
 <span id="sl">--</span>
 </div>
@@ -406,6 +431,16 @@ Stop Loss:
 <div class="metric">
 Take Profit:
 <span id="tp">--</span>
+</div>
+
+<div class="metric">
+Trailing Stop:
+<span id="trailingStopLoss">--</span>
+</div>
+
+<div class="metric">
+Trailing Status:
+<span id="trailingStopAdvice">--</span>
 </div>
 
 <div class="metric">
@@ -924,6 +959,10 @@ setValue("duration",data.duration);
 setValue("shortTrend",data.shortTrend);
 setValue("midTrend",data.midTrend);
 setValue("longTrend",data.longTrend);
+setValue("oneHourTrend",data.oneHourTrend);
+setValue("fourHourTrend",data.fourHourTrend);
+setValue("oneDayTrend",data.oneDayTrend);
+setValue("multiTimeframeTrend",data.multiTimeframeTrend);
 
 setValue("price",data.price);
 setValue("ask",data.ask);
@@ -940,8 +979,11 @@ setValue("spreadPercent",data.spreadPercent);
 setValue("atrPercent",data.atrPercent);
 
 setValue("entry",data.entry);
+setValue("tradePlanDirection",data.tradePlanDirection);
 setValue("sl",data.stopLoss);
 setValue("tp",data.takeProfit);
+setValue("trailingStopLoss",data.trailingStopLoss);
+setValue("trailingStopAdvice",data.trailingStopAdvice);
 
 setValue("risk",data.riskScore);
 setValue("riskReward",data.riskRewardRatio);
@@ -1028,7 +1070,7 @@ entry.warnings.length
 ? ` | ${entry.warnings.join(", ")}`
 : "";
 
-return `${entry.time} | ${entry.signal} | ${entry.price} | RSI ${entry.rsi} | RR ${entry.riskRewardRatio}${warnings}`;
+return `${entry.time} | ${entry.signal} | ${entry.price} | RSI ${entry.rsi} | MTF ${entry.multiTimeframeTrend || "--"} | RR ${entry.riskRewardRatio} | TSL ${entry.trailingStopLoss || "--"}${warnings}`;
 
 }).join("\n");
 

@@ -48,6 +48,9 @@ const MAX_ATR_PERCENT =
 const MIN_RISK_REWARD =
   1.5;
 
+const TRAILING_ATR_MULTIPLIER =
+  2;
+
 /*
 ==================================================
 FETCH WITH TIMEOUT
@@ -205,6 +208,83 @@ function ATR(candles, period=14){
   return recent.reduce((a,b)=>a+b,0)/period;
 }
 
+function getCandlesFromResponse(candleData){
+  if(
+    !candleData ||
+    !candleData.candles ||
+    !candleData.candles.length ||
+    !candleData.candles[0].candles
+  ){
+    return [];
+  }
+
+  return candleData.candles[0].candles
+    .map(candle => ({
+      ...candle,
+      open:
+        parseFloat(candle.open),
+      high:
+        parseFloat(candle.high),
+      low:
+        parseFloat(candle.low),
+      close:
+        parseFloat(candle.close)
+    }))
+    .sort(
+      (a,b)=>
+        new Date(a.fromDate) -
+        new Date(b.fromDate)
+    );
+}
+
+function analyzeTimeframe(candles){
+  const closes =
+    candles.map(c => c.close);
+
+  const ema20 =
+    EMA(closes.slice(-20),20);
+
+  const ema50 =
+    EMA(closes.slice(-50),50);
+
+  const ema100 =
+    EMA(closes.slice(-100),100);
+
+  const lastClose =
+    closes[closes.length - 1] || 0;
+
+  const shortTrend =
+    lastClose > ema20
+    ? "BULLISH"
+    : "BEARISH";
+
+  const midTrend =
+    ema20 > ema50
+    ? "BULLISH"
+    : "BEARISH";
+
+  const longTrend =
+    ema50 > ema100
+    ? "BULLISH"
+    : "BEARISH";
+
+  const alignedTrend =
+    shortTrend === midTrend &&
+    midTrend === longTrend
+    ? shortTrend
+    : "MIXED";
+
+  return {
+    ema20,
+    ema50,
+    ema100,
+    shortTrend,
+    midTrend,
+    longTrend,
+    alignedTrend
+  };
+}
+
 function isCooldownActive(lastSentAt){
   if(!lastSentAt){
     return false;
@@ -333,6 +413,8 @@ export default async function handler(req,res){
     ==============================================
     */
     const signalStateKey =`signal-state-${instrumentId}`;
+    const trailingStopStateKey =
+      `trailing-stop-state-${instrumentId}`;
 
     let signalState =await redis.get(signalStateKey);
     if(!signalState){
@@ -349,12 +431,20 @@ export default async function handler(req,res){
     const ratesUrl =
       `${BASE_URL}/market-data/instruments/rates?instrumentIds=${instrumentId}`;
 
-    const candlesUrl =
+    const oneHourCandlesUrl =
+      `${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/OneHour/200`;
+
+    const fourHourCandlesUrl =
+      `${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/FourHours/200`;
+
+    const oneDayCandlesUrl =
       `${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/OneDay/200`;
 
     const [
       liveResponse,
-      candleResponse
+      oneHourCandleResponse,
+      fourHourCandleResponse,
+      oneDayCandleResponse
     ] = await Promise.all([
 
       fetchWithTimeout(
@@ -369,7 +459,29 @@ export default async function handler(req,res){
       ),
 
       fetchWithTimeout(
-        candlesUrl,
+        oneHourCandlesUrl,
+        {
+          headers:{
+            "x-api-key": API_KEY,
+            "x-user-key": USER_KEY,
+            "x-request-id": uuidv4()
+          }
+        }
+      ),
+
+      fetchWithTimeout(
+        fourHourCandlesUrl,
+        {
+          headers:{
+            "x-api-key": API_KEY,
+            "x-user-key": USER_KEY,
+            "x-request-id": uuidv4()
+          }
+        }
+      ),
+
+      fetchWithTimeout(
+        oneDayCandlesUrl,
         {
           headers:{
             "x-api-key": API_KEY,
@@ -396,13 +508,33 @@ export default async function handler(req,res){
       );
     }
 
-    if(!candleResponse.ok){
+    if(!oneHourCandleResponse.ok){
 
       const txt =
-        await candleResponse.text();
+        await oneHourCandleResponse.text();
 
       throw new Error(
-        `Candles API ${candleResponse.status} ${txt}`
+        `OneHour Candles API ${oneHourCandleResponse.status} ${txt}`
+      );
+    }
+
+    if(!fourHourCandleResponse.ok){
+
+      const txt =
+        await fourHourCandleResponse.text();
+
+      throw new Error(
+        `FourHours Candles API ${fourHourCandleResponse.status} ${txt}`
+      );
+    }
+
+    if(!oneDayCandleResponse.ok){
+
+      const txt =
+        await oneDayCandleResponse.text();
+
+      throw new Error(
+        `OneDay Candles API ${oneDayCandleResponse.status} ${txt}`
       );
     }
 
@@ -413,10 +545,14 @@ export default async function handler(req,res){
     */
     const [
       liveData,
-      candleData
+      oneHourCandleData,
+      fourHourCandleData,
+      oneDayCandleData
     ] = await Promise.all([
       liveResponse.json(),
-      candleResponse.json()
+      oneHourCandleResponse.json(),
+      fourHourCandleResponse.json(),
+      oneDayCandleResponse.json()
     ]);
 
     /*
@@ -432,30 +568,33 @@ export default async function handler(req,res){
       throw new Error("No live rates returned");
     }
 
-    if(
-      !candleData ||
-      !candleData.candles ||
-      !candleData.candles.length ||
-      !candleData.candles[0].candles
-    ){
-      throw new Error("Invalid candles structure");
+    const oneHourCandles =
+      getCandlesFromResponse(oneHourCandleData);
+
+    const fourHourCandles =
+      getCandlesFromResponse(fourHourCandleData);
+
+    const oneDayCandles =
+      getCandlesFromResponse(oneDayCandleData);
+
+    if(!oneHourCandles.length){
+      throw new Error("Invalid OneHour candles structure");
+    }
+
+    if(!fourHourCandles.length){
+      throw new Error("Invalid FourHours candles structure");
+    }
+
+    if(!oneDayCandles.length){
+      throw new Error("Invalid OneDay candles structure");
     }
 
     const live =
       liveData.rates[0];
 
-    const candles =
-      candleData.candles[0].candles;
-
-    candles.sort(
-      (a,b)=>
-        new Date(a.fromDate) -
-        new Date(b.fromDate)
-    );
-
     const closes =
-      candles.map(
-        c => parseFloat(c.close)
+      oneDayCandles.map(
+        c => c.close
       );
 
     /*
@@ -463,20 +602,29 @@ export default async function handler(req,res){
     INDICATORS
     ==============================================
     */
+    const oneHourTrend =
+      analyzeTimeframe(oneHourCandles);
+
+    const fourHourTrend =
+      analyzeTimeframe(fourHourCandles);
+
+    const oneDayTrend =
+      analyzeTimeframe(oneDayCandles);
+
     const ema20 =
-      EMA(closes.slice(-20),20);
+      oneDayTrend.ema20;
 
     const ema50 =
-      EMA(closes.slice(-50),50);
+      oneDayTrend.ema50;
 
     const ema100 =
-      EMA(closes.slice(-100),100);
+      oneDayTrend.ema100;
 
     const rsi =
       RSI(closes);
 
     const atr =
-      ATR(candles);
+      ATR(oneDayCandles);
 
     /*
     ==============================================
@@ -511,19 +659,22 @@ export default async function handler(req,res){
     ==============================================
     */
     const shortTrend =
-      currentPrice > ema20
-      ? "BULLISH"
-      : "BEARISH";
+      oneDayTrend.shortTrend;
 
     const midTrend =
-      ema20 > ema50
-      ? "BULLISH"
-      : "BEARISH";
+      oneDayTrend.midTrend;
 
     const longTrend =
-      ema50 > ema100
-      ? "BULLISH"
-      : "BEARISH";
+      oneDayTrend.longTrend;
+
+    const multiTimeframeTrend =
+      oneHourTrend.alignedTrend === fourHourTrend.alignedTrend &&
+      fourHourTrend.alignedTrend === oneDayTrend.alignedTrend
+      ? oneDayTrend.alignedTrend
+      : "MIXED";
+
+    const multiTimeframeConfirmed =
+      multiTimeframeTrend !== "MIXED";
 
     /*
     ==============================================
@@ -538,11 +689,27 @@ export default async function handler(req,res){
       shortTrend==="BULLISH" &&
       midTrend==="BULLISH" &&
       longTrend==="BULLISH" &&
+      multiTimeframeTrend==="BULLISH" &&
       rsi>50 &&
       rsi<68
     ){
       signal = "BUY";
       confidence += 30;
+    }
+
+    if(
+      shortTrend==="BEARISH" &&
+      midTrend==="BEARISH" &&
+      longTrend==="BEARISH" &&
+      multiTimeframeTrend==="BEARISH" &&
+      rsi<40
+    ){
+      signal = "SELL";
+      confidence += 30;
+    }
+
+    if(!multiTimeframeConfirmed){
+      signalWarnings.push("TIMEFRAMES NOT ALIGNED");
     }
 
     const spreadOk =
@@ -567,16 +734,6 @@ export default async function handler(req,res){
       signal = "HOLD";
       confidence =
         Math.max(35, confidence - 25);
-    }
-
-    if(
-      shortTrend==="BEARISH" &&
-      midTrend==="BEARISH" &&
-      longTrend==="BEARISH" &&
-      rsi<40
-    ){
-      signal = "SELL";
-      confidence += 30;
     }
     /*
     ==============================================
@@ -620,13 +777,20 @@ export default async function handler(req,res){
     RISK ENGINE
     ==============================================
     */
+    const tradePlanDirection =
+      signal !== "HOLD"
+      ? signal
+      : multiTimeframeTrend === "BEARISH"
+      ? "SELL"
+      : "BUY";
+
     const stopLoss =
-      signal==="BUY"
+      tradePlanDirection==="BUY"
       ? currentPrice - atr*1.5
       : currentPrice + atr*1.5;
 
     const takeProfit =
-      signal==="BUY"
+      tradePlanDirection==="BUY"
       ? currentPrice + atr*3
       : currentPrice - atr*3;
 
@@ -658,6 +822,73 @@ export default async function handler(req,res){
 
     riskScore =
       Math.min(100,riskScore);
+
+    /*
+    ==============================================
+    TRAILING STOP LOSS
+    ==============================================
+    */
+    let trailingStopLoss = "--";
+    let trailingStopAdvice =
+      "NO OPEN POSITION";
+
+    if(
+      holding==="yes" &&
+      entryPrice>0 &&
+      currentPrice>0 &&
+      atr>0
+    ){
+
+      const previousTrailingState =
+        await redis.get(trailingStopStateKey);
+
+      const previousBestPrice =
+        parseFloat(previousTrailingState?.bestPrice || entryPrice);
+
+      const previousTrailingStop =
+        parseFloat(previousTrailingState?.trailingStopLoss || 0);
+
+      const bestPrice =
+        Math.max(
+          previousBestPrice,
+          currentPrice,
+          entryPrice
+        );
+
+      const calculatedTrailingStop =
+        bestPrice - atr * TRAILING_ATR_MULTIPLIER;
+
+      const protectedTrailingStop =
+        Math.max(
+          previousTrailingStop,
+          existingSL || 0,
+          calculatedTrailingStop
+        );
+
+      trailingStopLoss =
+        protectedTrailingStop.toFixed(2);
+
+      trailingStopAdvice =
+        currentPrice <= protectedTrailingStop
+        ? "TRAILING STOP HIT"
+        : "TRAILING STOP ACTIVE";
+
+      await redis.set(
+        trailingStopStateKey,
+        {
+          bestPrice,
+          trailingStopLoss:
+            protectedTrailingStop,
+          updatedAt:
+            new Date().toISOString()
+        }
+      );
+
+    } else {
+
+      await redis.del(trailingStopStateKey);
+
+    }
 
     /*
     ==============================================
@@ -707,6 +938,11 @@ export default async function handler(req,res){
       ){
         positionAdvice =
           "STOP LOSS BREACHED";
+      }
+
+      if(trailingStopAdvice === "TRAILING STOP HIT"){
+        positionAdvice =
+          "TRAILING STOP HIT";
       }
     }
 
@@ -785,8 +1021,10 @@ export default async function handler(req,res){
                 Short ${shortTrend}
                 Mid ${midTrend}
                 Long ${longTrend}
+                Multi-timeframe ${multiTimeframeTrend}
                 Duration:${duration}
-                Confidence:${confidence}%`
+                Confidence:${confidence}%
+                Trailing Stop:${trailingStopLoss}`
   
             })
           }
@@ -809,7 +1047,7 @@ export default async function handler(req,res){
     ==============================================
     */
     const logEntry =
-`${new Date().toISOString()} | ${signal} | ${currentPrice.toFixed(2)} | RSI ${rsi.toFixed(2)} | Spread ${spreadPercent.toFixed(3)}% | ATR ${atrPercent.toFixed(3)}% | RR ${riskRewardRatio.toFixed(2)}`;
+`${new Date().toISOString()} | ${signal} | ${currentPrice.toFixed(2)} | RSI ${rsi.toFixed(2)} | MTF ${multiTimeframeTrend} | Spread ${spreadPercent.toFixed(3)}% | ATR ${atrPercent.toFixed(3)}% | RR ${riskRewardRatio.toFixed(2)} | TSL ${trailingStopLoss}`;
 
     const signalHistoryEntry = {
       time:
@@ -834,6 +1072,10 @@ export default async function handler(req,res){
 
       riskRewardRatio:
         riskRewardRatio.toFixed(2),
+
+      multiTimeframeTrend,
+
+      trailingStopLoss,
 
       warnings:
         signalWarnings
@@ -881,6 +1123,19 @@ export default async function handler(req,res){
       midTrend,
       longTrend,
 
+      oneHourTrend:
+        oneHourTrend.alignedTrend,
+
+      fourHourTrend:
+        fourHourTrend.alignedTrend,
+
+      oneDayTrend:
+        oneDayTrend.alignedTrend,
+
+      multiTimeframeTrend,
+
+      multiTimeframeConfirmed,
+
       price:
         currentPrice.toFixed(2),
 
@@ -923,6 +1178,8 @@ export default async function handler(req,res){
       takeProfit:
         takeProfit.toFixed(2),
 
+      tradePlanDirection,
+
       riskScore:
         riskScore+"/100",
 
@@ -936,6 +1193,10 @@ export default async function handler(req,res){
 
       telegramCooldown:
         telegramCooldownActive,
+
+      trailingStopLoss,
+
+      trailingStopAdvice,
 
       pnl,
       exposure,
