@@ -1,15 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-
 <meta charset="UTF-8"/>
-
-<meta
-name="viewport"
-content="width=device-width, initial-scale=1.0"
-/>
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Quant Dashboard PRO</title>
 
 <style>
@@ -55,6 +48,7 @@ grid-template-columns:1fr;
 .signal{
 font-size:32px;
 }
+
 }
 
 label{
@@ -135,6 +129,29 @@ border:1px solid #1e293b;
 
 .loading{
 opacity:0.7;
+}
+
+.auditBox{
+margin:25px auto;
+padding:15px;
+background:#0f172a;
+border-radius:16px;
+border:1px solid #1e293b;
+}
+
+.auditTerminal{
+margin:0;
+max-height:220px;
+overflow-y:auto;
+white-space:pre-wrap;
+font-size:12px;
+line-height:1.5;
+background:#020617;
+padding:10px;
+border-radius:12px;
+color:#e2e8f0;
+border:1px solid #1e293b;
+font-family:monospace;
 }
 
 </style>
@@ -252,11 +269,9 @@ Save Position
 
 <button
 id="runBtn"
-onclick="runAnalysis(false)"
+onclick="triggerAnalysisPipeline(false)"
 >
-
 Run Analysis
-
 </button>
 
 </div>
@@ -271,14 +286,17 @@ Primary Signal
 id="signal"
 class="signal hold"
 >
-
 WAITING...
-
 </div>
 
 <div class="metric">
 Confidence:
 <span id="confidence">--</span>
+</div>
+
+<div class="metric">
+Signal Score:
+<span id="signalScore">--</span>
 </div>
 
 <div class="metric">
@@ -309,6 +327,26 @@ Long Trend:
 <span id="longTrend">--</span>
 </div>
 
+<div class="metric">
+1H Trend:
+<span id="oneHourTrend">--</span>
+</div>
+
+<div class="metric">
+4H Trend:
+<span id="fourHourTrend">--</span>
+</div>
+
+<div class="metric">
+Daily Trend:
+<span id="oneDayTrend">--</span>
+</div>
+
+<div class="metric">
+Multi-Timeframe:
+<span id="multiTimeframeTrend">--</span>
+</div>
+
 </div>
 
 <div class="card">
@@ -320,6 +358,16 @@ Technical Indicators
 <div class="metric">
 Price:
 <span id="price">--</span>
+</div>
+
+<div class="metric">
+Ask:
+<span id="ask">--</span>
+</div>
+
+<div class="metric">
+Bid:
+<span id="bid">--</span>
 </div>
 
 <div class="metric">
@@ -352,6 +400,16 @@ Spread:
 <span id="spread">--</span>
 </div>
 
+<div class="metric">
+Spread %:
+<span id="spreadPercent">--</span>
+</div>
+
+<div class="metric">
+ATR %:
+<span id="atrPercent">--</span>
+</div>
+
 </div>
 
 <div class="card">
@@ -366,6 +424,11 @@ Entry:
 </div>
 
 <div class="metric">
+Plan Direction:
+<span id="tradePlanDirection">--</span>
+</div>
+
+<div class="metric">
 Stop Loss:
 <span id="sl">--</span>
 </div>
@@ -376,8 +439,28 @@ Take Profit:
 </div>
 
 <div class="metric">
+Trailing Stop:
+<span id="trailingStopLoss">--</span>
+</div>
+
+<div class="metric">
+Trailing Status:
+<span id="trailingStopAdvice">--</span>
+</div>
+
+<div class="metric">
 Risk Score:
 <span id="risk">--</span>
+</div>
+
+<div class="metric">
+Risk / Reward:
+<span id="riskReward">--</span>
+</div>
+
+<div class="metric">
+Signal Quality:
+<span id="signalQuality">--</span>
 </div>
 
 </div>
@@ -408,6 +491,61 @@ Advice:
 <div class="card">
 
 <h2 style="margin-bottom:16px;">
+Backtest Quality
+</h2>
+
+<div class="metric">
+Signals Tested:
+<span id="backtestSignals">--</span>
+</div>
+
+<div class="metric">
+Win Rate:
+<span id="backtestWinRate">--</span>
+</div>
+
+<div class="metric">
+Average Return:
+<span id="backtestAverageReturn">--</span>
+</div>
+
+<div class="metric">
+Cumulative Return:
+<span id="backtestCumulativeReturn">--</span>
+</div>
+
+<div class="metric">
+Max Drawdown:
+<span id="backtestMaxDrawdown">--</span>
+</div>
+
+<pre
+id="backtestTrades"
+class="auditTerminal"
+>
+Loading backtest...
+</pre>
+
+</div>
+
+<div class="card">
+
+<h2 style="margin-bottom:16px;">
+Signal History
+</h2>
+
+<pre
+id="signalHistory"
+class="auditTerminal"
+>
+Loading signal history...
+</pre>
+
+</div>
+
+<div class="card">
+
+<h2 style="margin-bottom:16px;">
 System Log
 </h2>
 
@@ -415,6 +553,26 @@ System Log
 id="logBox"
 class="log"
 ></div>
+
+</div>
+
+<div class="auditBox">
+
+<h3 style="
+margin-top:0;
+color:#06b6d4;
+border-bottom:1px solid #1e293b;
+padding-bottom:8px;
+">
+🔄 24/7 System Audit Trail Logs
+</h3>
+
+<pre
+id="systemAuditTerminalLogs"
+class="auditTerminal"
+>
+Loading audit engine...
+</pre>
 
 </div>
 
@@ -429,6 +587,9 @@ const runBtn =
 document.getElementById("runBtn");
 
 let isRunning = false;
+
+const POSITION_STORAGE_PREFIX =
+"quant-dashboard-position";
 
 /*
 ==================================================
@@ -454,15 +615,17 @@ if(logBox.children.length > 100){
 logBox.removeChild(
 logBox.firstChild
 );
+
 }
 
 logBox.scrollTop =
 logBox.scrollHeight;
+
 }
 
 /*
 ==================================================
-SAFE UI UPDATE
+SAFE VALUE SETTER
 ==================================================
 */
 
@@ -475,7 +638,179 @@ if(el){
 
 el.innerText =
 value ?? "--";
+
 }
+
+}
+
+/*
+==================================================
+POSITION MEMORY
+==================================================
+*/
+
+function getPositionStorageKey(){
+
+const instrumentId =
+document.getElementById("instrumentInput").value || "686";
+
+return `${POSITION_STORAGE_PREFIX}-${instrumentId}`;
+
+}
+
+function readPositionForm(){
+
+return {
+holding:
+document.getElementById("holding").value,
+
+leverage:
+document.getElementById("leverage").value,
+
+entryPrice:
+document.getElementById("entryPrice").value,
+
+amountInvested:
+document.getElementById("amountInvested").value,
+
+existingSL:
+document.getElementById("existingSL").value,
+
+existingTP:
+document.getElementById("existingTP").value
+};
+
+}
+
+function applyPositionForm(position){
+
+if(!position){
+return;
+}
+
+document.getElementById("holding").value =
+position.holding || "no";
+
+document.getElementById("leverage").value =
+position.leverage || 1;
+
+document.getElementById("entryPrice").value =
+position.entryPrice || "";
+
+document.getElementById("amountInvested").value =
+position.amountInvested || 1000;
+
+document.getElementById("existingSL").value =
+position.existingSL || "";
+
+document.getElementById("existingTP").value =
+position.existingTP || "";
+
+}
+
+function savePositionToBrowser(position){
+
+localStorage.setItem(
+getPositionStorageKey(),
+JSON.stringify(position || readPositionForm())
+);
+
+}
+
+async function savePositionToRedis(position){
+
+const instrumentId =
+encodeURIComponent(
+document.getElementById("instrumentInput").value || "686"
+);
+
+const response =
+await fetch(
+`/api/position?instrumentId=${instrumentId}`,
+{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:
+JSON.stringify(position || readPositionForm())
+}
+);
+
+const data =
+await response.json();
+
+if(!response.ok || !data.success){
+
+throw new Error(
+data.error || `HTTP ${response.status}`
+);
+
+}
+
+return data.position;
+
+}
+
+async function loadPositionFromRedis(){
+
+const instrumentId =
+encodeURIComponent(
+document.getElementById("instrumentInput").value || "686"
+);
+
+const response =
+await fetch(
+`/api/position?instrumentId=${instrumentId}`
+);
+
+const data =
+await response.json();
+
+if(!response.ok || !data.success){
+
+throw new Error(
+data.error || `HTTP ${response.status}`
+);
+
+}
+
+if(data.position){
+
+applyPositionForm(data.position);
+savePositionToBrowser(data.position);
+log("Loaded saved position from Redis");
+return true;
+
+}
+
+return false;
+
+}
+
+function loadPositionFromBrowser(){
+
+try{
+
+const savedPosition =
+localStorage.getItem(getPositionStorageKey());
+
+if(savedPosition){
+
+applyPositionForm(
+JSON.parse(savedPosition)
+);
+
+log("Loaded saved position from browser memory");
+
+}
+
+}catch(err){
+
+console.error(err);
+
+}
+
 }
 
 /*
@@ -486,11 +821,26 @@ SAVE POSITION
 
 async function savePosition(){
 
+try{
+
 log("Saving position...");
 
-await runAnalysis(true);
+const savedPosition =
+await savePositionToRedis();
+
+savePositionToBrowser(savedPosition);
+
+await triggerAnalysisPipeline(false,true);
 
 log("Position saved");
+
+}catch(err){
+
+console.error(err);
+log(`Position save failed: ${err.message}`);
+
+}
+
 }
 
 /*
@@ -500,11 +850,11 @@ RUN ANALYSIS
 */
 
 async function runAnalysis(
-updatePosition=false
+updatePosition=false,
+loadSavedPosition=false
 ){
 
 if(isRunning){
-
 return;
 }
 
@@ -522,197 +872,172 @@ log("Running analysis...");
 
 const instrumentId =
 encodeURIComponent(
-document.getElementById(
-"instrumentInput"
-).value
+document.getElementById("instrumentInput").value
 );
 
 const holding =
 encodeURIComponent(
-document.getElementById(
-"holding"
-).value
+document.getElementById("holding").value
 );
 
 const leverage =
 encodeURIComponent(
-document.getElementById(
-"leverage"
-).value
+document.getElementById("leverage").value
 );
 
 const entryPrice =
 encodeURIComponent(
-document.getElementById(
-"entryPrice"
-).value || 0
+document.getElementById("entryPrice").value || 0
 );
 
 const existingSL =
 encodeURIComponent(
-document.getElementById(
-"existingSL"
-).value || 0
+document.getElementById("existingSL").value || 0
 );
 
 const existingTP =
 encodeURIComponent(
-document.getElementById(
-"existingTP"
-).value || 0
+document.getElementById("existingTP").value || 0
 );
 
 const amountInvested =
 encodeURIComponent(
-document.getElementById(
-"amountInvested"
-).value || 1000
+document.getElementById("amountInvested").value || 1000
 );
 
 const url =
 
-`/api/market?instrumentId=${instrumentId}&holding=${holding}&leverage=${leverage}&entryPrice=${entryPrice}&existingSL=${existingSL}&existingTP=${existingTP}&amountInvested=${amountInvested}&updatePosition=${updatePosition}`;
+`/api/market?instrumentId=${instrumentId}&holding=${holding}&leverage=${leverage}&entryPrice=${entryPrice}&existingSL=${existingSL}&existingTP=${existingTP}&amountInvested=${amountInvested}&updatePosition=${updatePosition}&loadSavedPosition=${loadSavedPosition}`;
 
 const response =
 await fetch(url);
 
-if(!response.ok){
-
-throw new Error(
-`HTTP ${response.status}`
-);
-}
-
 const data =
 await response.json();
 
-if(data.error){
+if(!response.ok){
 
 throw new Error(
-data.error
+data.error || `HTTP ${response.status}`
 );
+
+}
+
+if(data.error){
+
+throw new Error(data.error);
+
 }
 
 /*
-========================================
-SIGNAL
-========================================
+==================================================
+SYNC SAVED POSITION
+==================================================
+*/
+
+document.getElementById("holding").value =
+data.holding ? "yes" : "no";
+
+document.getElementById("leverage").value =
+data.leverage || 1;
+
+document.getElementById("entryPrice").value =
+data.entryPrice || "";
+
+document.getElementById("amountInvested").value =
+data.amountInvested || "";
+
+document.getElementById("existingSL").value =
+data.existingSL || "";
+
+document.getElementById("existingTP").value =
+data.existingTP || "";
+
+if(updatePosition){
+
+savePositionToBrowser({
+holding:
+data.holding ? "yes" : "no",
+
+leverage:
+data.leverage || 1,
+
+entryPrice:
+data.entryPrice || "",
+
+amountInvested:
+data.amountInvested || 1000,
+
+existingSL:
+data.existingSL || "",
+
+existingTP:
+data.existingTP || ""
+});
+
+}
+
+/*
+==================================================
+SIGNAL COLOR
+==================================================
 */
 
 const signalElement =
-document.getElementById(
-"signal"
-);
+document.getElementById("signal");
 
 signalElement.innerText =
 data.signal || "HOLD";
 
 signalElement.className =
-`signal ${
-(data.signal || "hold")
-.toLowerCase()
-}`;
+`signal ${(data.signal || "hold").toLowerCase()}`;
 
 /*
-========================================
-UPDATE VALUES
-========================================
+==================================================
+UPDATE UI
+==================================================
 */
 
-setValue(
-"confidence",
-data.confidence
-);
+setValue("confidence",data.confidence);
+setValue("signalScore",data.signalScore);
+setValue("duration",data.duration);
 
-setValue(
-"duration",
-data.duration
-);
+setValue("shortTrend",data.shortTrend);
+setValue("midTrend",data.midTrend);
+setValue("longTrend",data.longTrend);
+setValue("oneHourTrend",data.oneHourTrend);
+setValue("fourHourTrend",data.fourHourTrend);
+setValue("oneDayTrend",data.oneDayTrend);
+setValue("multiTimeframeTrend",data.multiTimeframeTrend);
 
-setValue(
-"shortTrend",
-data.shortTrend
-);
+setValue("price",data.price);
+setValue("ask",data.ask);
+setValue("bid",data.bid);
 
-setValue(
-"midTrend",
-data.midTrend
-);
+setValue("ema20",data.ema20);
+setValue("ema50",data.ema50);
+setValue("ema100",data.ema100);
 
-setValue(
-"longTrend",
-data.longTrend
-);
+setValue("rsi",data.rsi);
+setValue("atr",data.atr);
+setValue("spread",data.spread);
+setValue("spreadPercent",data.spreadPercent);
+setValue("atrPercent",data.atrPercent);
 
-setValue(
-"price",
-data.price
-);
+setValue("entry",data.entry);
+setValue("tradePlanDirection",data.tradePlanDirection);
+setValue("sl",data.stopLoss);
+setValue("tp",data.takeProfit);
+setValue("trailingStopLoss",data.trailingStopLoss);
+setValue("trailingStopAdvice",data.trailingStopAdvice);
 
-setValue(
-"ema20",
-data.ema20
-);
+setValue("risk",data.riskScore);
+setValue("riskReward",data.riskRewardRatio);
+setValue("signalQuality",data.signalQuality);
 
-setValue(
-"ema50",
-data.ema50
-);
-
-setValue(
-"ema100",
-data.ema100
-);
-
-setValue(
-"rsi",
-data.rsi
-);
-
-setValue(
-"atr",
-data.atr
-);
-
-setValue(
-"spread",
-data.spread
-);
-
-setValue(
-"entry",
-data.entry
-);
-
-setValue(
-"sl",
-data.stopLoss
-);
-
-setValue(
-"tp",
-data.takeProfit
-);
-
-setValue(
-"risk",
-data.riskScore
-);
-
-setValue(
-"pnl",
-data.pnl
-);
-
-setValue(
-"exposure",
-data.exposure
-);
-
-setValue(
-"positionAdvice",
-data.positionAdvice
-);
+setValue("pnl",data.pnl);
+setValue("exposure",data.exposure);
+setValue("positionAdvice",data.positionAdvice);
 
 log("Analysis completed");
 
@@ -720,9 +1045,7 @@ log("Analysis completed");
 
 console.error(err);
 
-log(
-`ERROR: ${err.message}`
-);
+log(`ERROR: ${err.message}`);
 
 }finally{
 
@@ -733,7 +1056,260 @@ runBtn.disabled = false;
 document.body.classList.remove(
 "loading"
 );
+
 }
+
+}
+
+/*
+==================================================
+BACKTEST RENDERER
+==================================================
+*/
+
+async function renderBacktestQuality(){
+
+const tradesDisplay =
+document.getElementById("backtestTrades");
+
+if(!tradesDisplay){
+return;
+}
+
+try{
+
+const instrumentId =
+encodeURIComponent(
+document.getElementById("instrumentInput").value || "686"
+);
+
+const response =
+await fetch(`/api/backtest?instrumentId=${instrumentId}`);
+
+const result =
+await response.json();
+
+if(!response.ok || !result.success){
+
+throw new Error(
+result.error || `HTTP ${response.status}`
+);
+
+}
+
+setValue("backtestSignals",result.totalSignals);
+setValue("backtestWinRate",result.winRate);
+setValue("backtestAverageReturn",result.averageReturn);
+setValue("backtestCumulativeReturn",result.cumulativeReturn);
+setValue("backtestMaxDrawdown",result.maxDrawdown);
+
+if(
+Array.isArray(result.recentTrades) &&
+result.recentTrades.length > 0
+){
+
+tradesDisplay.innerHTML =
+result.recentTrades.map(trade => {
+
+return `${trade.date} | ${trade.signal} | Score ${trade.score} | ${trade.returnPercent}%`;
+
+}).join("\n");
+
+}else{
+
+tradesDisplay.innerHTML =
+"No historical signals passed the score threshold.";
+
+}
+
+}catch(err){
+
+console.error(err);
+
+setValue("backtestSignals","--");
+setValue("backtestWinRate","--");
+setValue("backtestAverageReturn","--");
+setValue("backtestCumulativeReturn","--");
+setValue("backtestMaxDrawdown","--");
+
+tradesDisplay.innerHTML =
+`Backtest error: ${err.message}`;
+
+}
+
+}
+
+/*
+==================================================
+SIGNAL HISTORY RENDERER
+==================================================
+*/
+
+async function renderSignalHistory(){
+
+const historyDisplay =
+document.getElementById("signalHistory");
+
+if(!historyDisplay){
+return;
+}
+
+try{
+
+const instrumentId =
+encodeURIComponent(
+document.getElementById("instrumentInput").value || "686"
+);
+
+const response =
+await fetch(`/api/history?instrumentId=${instrumentId}`);
+
+if(!response.ok){
+
+throw new Error(
+`HTTP ${response.status}`
+);
+
+}
+
+const result =
+await response.json();
+
+if(
+result.success &&
+Array.isArray(result.history) &&
+result.history.length > 0
+){
+
+historyDisplay.innerHTML =
+result.history.map(entry => {
+
+if(!entry || typeof entry !== "object"){
+return "Invalid history entry";
+}
+
+const warnings =
+Array.isArray(entry.warnings) &&
+entry.warnings.length
+? ` | ${entry.warnings.join(", ")}`
+: "";
+
+return `${entry.time} | ${entry.signal} | ${entry.price} | RSI ${entry.rsi} | MTF ${entry.multiTimeframeTrend || "--"} | RR ${entry.riskRewardRatio} | TSL ${entry.trailingStopLoss || "--"}${warnings}`;
+
+}).join("\n");
+
+}else{
+
+historyDisplay.innerHTML =
+"No signal history yet.";
+
+}
+
+}catch(err){
+
+console.error(err);
+
+historyDisplay.innerHTML =
+`Signal history error: ${err.message}`;
+
+}
+
+}
+
+/*
+==================================================
+AUDIT TRAIL RENDERER
+==================================================
+*/
+
+async function renderSystemLogsTrail(){
+
+const consoleDisplay =
+document.getElementById(
+"systemAuditTerminalLogs"
+);
+
+if(!consoleDisplay){
+return;
+}
+
+try{
+
+const response =
+await fetch("/api/logs");
+
+if(!response.ok){
+
+throw new Error(
+`HTTP ${response.status}`
+);
+
+}
+
+const logsResult =
+await response.json();
+
+if(
+logsResult.success &&
+Array.isArray(logsResult.logs) &&
+logsResult.logs.length > 0
+){
+
+consoleDisplay.innerHTML =
+logsResult.logs.map(entry => {
+
+if(typeof entry !== "string"){
+
+return "Invalid log entry";
+
+}
+
+return entry;
+
+}).join("\n");
+
+}else{
+
+consoleDisplay.innerHTML =
+"No audit history yet.";
+
+}
+
+}catch(err){
+
+console.error(err);
+
+consoleDisplay.innerHTML =
+`Audit log engine error: ${err.message}`;
+
+}
+
+}
+
+/*
+==================================================
+PIPELINE WRAPPER
+==================================================
+*/
+
+async function triggerAnalysisPipeline(
+updatePosition=false,
+loadSavedPosition=false
+){
+
+await runAnalysis(
+updatePosition,
+loadSavedPosition
+);
+
+setTimeout(() => {
+
+renderSystemLogsTrail();
+renderSignalHistory();
+renderBacktestQuality();
+
+},1000);
+
 }
 
 /*
@@ -742,7 +1318,35 @@ INITIAL LOAD
 ==================================================
 */
 
-runAnalysis(false);
+window.addEventListener(
+"DOMContentLoaded",
+async () => {
+
+try{
+
+const loadedFromRedis =
+await loadPositionFromRedis();
+
+if(!loadedFromRedis){
+loadPositionFromBrowser();
+}
+
+}catch(err){
+
+console.error(err);
+log(`Redis position load failed: ${err.message}`);
+loadPositionFromBrowser();
+
+}
+
+triggerAnalysisPipeline(false,true);
+
+renderSystemLogsTrail();
+renderSignalHistory();
+renderBacktestQuality();
+
+}
+);
 
 /*
 ==================================================
@@ -755,12 +1359,11 @@ const REFRESH_INTERVAL =
 
 setInterval(() => {
 
-runAnalysis(false);
+triggerAnalysisPipeline(false);
 
-}, REFRESH_INTERVAL);
+},REFRESH_INTERVAL);
 
 </script>
 
 </body>
-
 </html>
