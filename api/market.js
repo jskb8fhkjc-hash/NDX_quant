@@ -232,23 +232,74 @@ export default async function handler(req,res){
     const instrumentId =
       req.query.instrumentId || "686";
 
-    const holding =
+    const updatePosition =
+      req.query.updatePosition === "true";
+
+    const loadSavedPosition =
+      req.query.loadSavedPosition === "true";
+
+    const positionStateKey =
+      `position-state-${instrumentId}`;
+
+    const savedPosition =
+      await redis.get(positionStateKey);
+
+    let holding =
       req.query.holding || "no";
 
-    const leverage =
+    let leverage =
       parseFloat(req.query.leverage || 1);
 
-    const entryPrice =
+    let entryPrice =
       parseFloat(req.query.entryPrice || 0);
 
-    const amountInvested =
+    let amountInvested =
       parseFloat(req.query.amountInvested || 1000);
 
-    const existingSL =
+    let existingSL =
       parseFloat(req.query.existingSL || 0);
 
-    const existingTP =
+    let existingTP =
       parseFloat(req.query.existingTP || 0);
+
+    if(
+      loadSavedPosition &&
+      savedPosition
+    ){
+
+      holding =
+        savedPosition.holding || holding;
+
+      leverage =
+        parseFloat(savedPosition.leverage || leverage);
+
+      entryPrice =
+        parseFloat(savedPosition.entryPrice || entryPrice);
+
+      amountInvested =
+        parseFloat(savedPosition.amountInvested || amountInvested);
+
+      existingSL =
+        parseFloat(savedPosition.existingSL || existingSL);
+
+      existingTP =
+        parseFloat(savedPosition.existingTP || existingTP);
+    }
+
+    if(updatePosition){
+
+      await redis.set(
+        positionStateKey,
+        {
+          holding,
+          leverage,
+          entryPrice,
+          amountInvested,
+          existingSL,
+          existingTP
+        }
+      );
+    }
 
     const BASE_URL =
       "https://public-api.etoro.com/api/v1";
