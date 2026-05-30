@@ -255,6 +255,19 @@ export default async function handler(req,res){
 
     /*
     ==============================================
+    TELEGRAM SIGNAL STATE
+    ==============================================
+    */
+    const signalStateKey =`signal-state-${instrumentId}`;
+
+    let signalState =await redis.get(signalStateKey);
+    if(!signalState){
+      signalState = {
+        lastTelegramSignal:"NONE"
+      };
+    }
+    /*
+    ==============================================
     PARALLEL API FETCHING
     ==============================================
     */
@@ -455,7 +468,23 @@ export default async function handler(req,res){
       signal = "SELL";
       confidence += 30;
     }
+    /*
+    ==============================================
+    RESET DUPLICATE LOCK
+    ==============================================
+    */
+    if(
+      signal === "HOLD" &&
+      signalState.lastTelegramSignal !== "NONE"
+    ){
+      signalState.lastTelegramSignal =
+        "NONE";
+      await redis.set(
+        signalStateKey,
 
+        signalState
+      );
+    }
     /*
     ==============================================
     DURATION
@@ -552,15 +581,57 @@ export default async function handler(req,res){
 
     /*
     ==============================================
-    TELEGRAM ALERT
+    SMART TELEGRAM ALERT ENGINE
     ==============================================
     */
-    try {
 
-      if(BOT_TOKEN && CHAT_ID){
+    let shouldSendTelegram = false;
 
+    /*
+    NOT HOLDING
+    BUY -> SEND
+    SELL -> IGNORE
+    */
+    if(
+
+      holding === "no" &&
+      signal === "BUY"
+    ){
+      shouldSendTelegram = true;
+    }
+
+    /*
+    HOLDING
+    SELL -> SEND
+    BUY -> IGNORE
+    */
+    if(
+
+      holding === "yes" &&
+      signal === "SELL"
+    ){
+      shouldSendTelegram = true;
+    }
+
+    /*
+    PREVENT DUPLICATES
+    */
+    if(
+
+      signalState.lastTelegramSignal === signal
+    ){
+      shouldSendTelegram = false;
+    }
+
+    if(
+      shouldSendTelegram &&
+      BOT_TOKEN &&
+      CHAT_ID
+    ){
+      try {
         await fetch(
           `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
+    
           {
             method:"POST",
             headers:{
@@ -569,25 +640,29 @@ export default async function handler(req,res){
             body:JSON.stringify({
               chat_id:CHAT_ID,
               text:
-`${signal}
-Price: ${currentPrice}
-RSI: ${rsi.toFixed(2)}
-Trend: ${shortTrend}`
+                `${signal} SIGNAL
+                Instrument: ${instrumentId}
+                Price: ${currentPrice.toFixed(2)}
+                RSI: ${rsi.toFixed(2)}
+                Trend:
+                Short ${shortTrend}
+                Mid ${midTrend}
+                Long ${longTrend}
+                Duration:${duration}
+                Confidence:${confidence}%`
+  
             })
           }
         );
 
-      }
+        signalState.lastTelegramSignal =
+          signal;
 
-    } catch(e){
+        await redis.set(signalStateKey,signalState);
+      } catch(e){
 
-      console.log(
-        "Telegram Error:",
-        e.message
-      );
-
+        console.log("Telegram Error:",e.message);}
     }
-
     /*
     ==============================================
     AUDIT LOGGING
