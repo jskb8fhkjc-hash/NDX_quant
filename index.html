@@ -473,6 +473,9 @@ document.getElementById("runBtn");
 
 let isRunning = false;
 
+const POSITION_STORAGE_PREFIX =
+"quant-dashboard-position";
+
 /*
 ==================================================
 LOGGING
@@ -523,6 +526,105 @@ value ?? "--";
 
 }
 
+/*
+==================================================
+POSITION MEMORY
+==================================================
+*/
+
+function getPositionStorageKey(){
+
+const instrumentId =
+document.getElementById("instrumentInput").value || "686";
+
+return `${POSITION_STORAGE_PREFIX}-${instrumentId}`;
+
+}
+
+function readPositionForm(){
+
+return {
+holding:
+document.getElementById("holding").value,
+
+leverage:
+document.getElementById("leverage").value,
+
+entryPrice:
+document.getElementById("entryPrice").value,
+
+amountInvested:
+document.getElementById("amountInvested").value,
+
+existingSL:
+document.getElementById("existingSL").value,
+
+existingTP:
+document.getElementById("existingTP").value
+};
+
+}
+
+function applyPositionForm(position){
+
+if(!position){
+return;
+}
+
+document.getElementById("holding").value =
+position.holding || "no";
+
+document.getElementById("leverage").value =
+position.leverage || 1;
+
+document.getElementById("entryPrice").value =
+position.entryPrice || "";
+
+document.getElementById("amountInvested").value =
+position.amountInvested || 1000;
+
+document.getElementById("existingSL").value =
+position.existingSL || "";
+
+document.getElementById("existingTP").value =
+position.existingTP || "";
+
+}
+
+function savePositionToBrowser(position){
+
+localStorage.setItem(
+getPositionStorageKey(),
+JSON.stringify(position || readPositionForm())
+);
+
+}
+
+function loadPositionFromBrowser(){
+
+try{
+
+const savedPosition =
+localStorage.getItem(getPositionStorageKey());
+
+if(savedPosition){
+
+applyPositionForm(
+JSON.parse(savedPosition)
+);
+
+log("Loaded saved position from browser memory");
+
+}
+
+}catch(err){
+
+console.error(err);
+
+}
+
+}
+
 }
 
 /*
@@ -534,6 +636,8 @@ SAVE POSITION
 async function savePosition(){
 
 log("Saving position...");
+
+savePositionToBrowser();
 
 await triggerAnalysisPipeline(true);
 
@@ -547,7 +651,10 @@ RUN ANALYSIS
 ==================================================
 */
 
-async function runAnalysis(updatePosition=false){
+async function runAnalysis(
+updatePosition=false,
+loadSavedPosition=false
+){
 
 if(isRunning){
 return;
@@ -602,7 +709,7 @@ document.getElementById("amountInvested").value || 1000
 
 const url =
 
-`/api/market?instrumentId=${instrumentId}&holding=${holding}&leverage=${leverage}&entryPrice=${entryPrice}&existingSL=${existingSL}&existingTP=${existingTP}&amountInvested=${amountInvested}&updatePosition=${updatePosition}`;
+`/api/market?instrumentId=${instrumentId}&holding=${holding}&leverage=${leverage}&entryPrice=${entryPrice}&existingSL=${existingSL}&existingTP=${existingTP}&amountInvested=${amountInvested}&updatePosition=${updatePosition}&loadSavedPosition=${loadSavedPosition}`;
 
 const response =
 await fetch(url);
@@ -647,6 +754,30 @@ data.existingSL || "";
 
 document.getElementById("existingTP").value =
 data.existingTP || "";
+
+if(updatePosition){
+
+savePositionToBrowser({
+holding:
+data.holding ? "yes" : "no",
+
+leverage:
+data.leverage || 1,
+
+entryPrice:
+data.entryPrice || "",
+
+amountInvested:
+data.amountInvested || 1000,
+
+existingSL:
+data.existingSL || "",
+
+existingTP:
+data.existingTP || ""
+});
+
+}
 
 /*
 ==================================================
@@ -797,10 +928,14 @@ PIPELINE WRAPPER
 */
 
 async function triggerAnalysisPipeline(
-updatePosition=false
+updatePosition=false,
+loadSavedPosition=false
 ){
 
-await runAnalysis(updatePosition);
+await runAnalysis(
+updatePosition,
+loadSavedPosition
+);
 
 setTimeout(() => {
 
@@ -820,7 +955,9 @@ window.addEventListener(
 "DOMContentLoaded",
 () => {
 
-triggerAnalysisPipeline(false);
+loadPositionFromBrowser();
+
+triggerAnalysisPipeline(false,true);
 
 renderSystemLogsTrail();
 
