@@ -75,6 +75,34 @@ select:focus{
 border:1px solid #06b6d4;
 }
 
+.instrumentPicker{
+position:relative;
+}
+
+.instrumentSearchResults{
+display:none;
+position:absolute;
+left:0;
+right:0;
+top:74px;
+z-index:10;
+max-height:220px;
+overflow:auto;
+background:#020617;
+border:1px solid #1e293b;
+border-radius:12px;
+box-shadow:0 12px 30px rgba(0,0,0,0.35);
+}
+
+.instrumentSearchResults button{
+margin:0;
+border-radius:0;
+background:#020617;
+text-align:left;
+font-weight:normal;
+border-bottom:1px solid #1e293b;
+}
+
 button{
 padding:14px 20px;
 background:#06b6d4;
@@ -168,12 +196,47 @@ font-family:monospace;
 Quant Dashboard PRO
 </h1>
 
-<label>Instrument ID</label>
+<div class="instrumentPicker">
+
+<label>Stock / Instrument</label>
+
+<input
+id="instrumentSearchInput"
+list="instrumentOptions"
+value="28"
+placeholder="Search ticker, name, or instrument ID"
+oninput="handleInstrumentSearchInput()"
+/>
+
+<datalist id="instrumentOptions">
+<option value="28 | DEFAULT | Instrument 28"></option>
+<option value="1001 | AAPL | Apple"></option>
+<option value="1002 | MSFT | Microsoft"></option>
+<option value="1003 | AMZN | Amazon"></option>
+<option value="1004 | GOOGL | Alphabet"></option>
+<option value="1005 | TSLA | Tesla"></option>
+<option value="1006 | NVDA | NVIDIA"></option>
+<option value="1007 | META | Meta Platforms"></option>
+</datalist>
+
+<div
+id="instrumentSearchResults"
+class="instrumentSearchResults"
+></div>
 
 <input
 id="instrumentInput"
-value="686"
+type="hidden"
+value="28"
 />
+
+<input
+id="instrumentSymbolInput"
+type="hidden"
+value=""
+/>
+
+</div>
 
 <div class="grid">
 
@@ -498,6 +561,16 @@ Signal Quality:
 <span id="signalQuality">--</span>
 </div>
 
+<div class="metric">
+News Bias:
+<span id="newsBias">--</span>
+</div>
+
+<div class="metric">
+News Confidence:
+<span id="newsConfidence">--</span>
+</div>
+
 </div>
 
 <div class="card">
@@ -520,6 +593,31 @@ Exposure:
 Advice:
 <span id="positionAdvice">--</span>
 </div>
+
+</div>
+
+<div class="card">
+
+<h2 style="margin-bottom:16px;">
+News Decision
+</h2>
+
+<div class="metric">
+Provider:
+<span id="newsProvider">--</span>
+</div>
+
+<div class="metric">
+Summary:
+<span id="newsSummary">--</span>
+</div>
+
+<pre
+id="newsHeadlines"
+class="auditTerminal"
+>
+Loading news check...
+</pre>
 
 </div>
 
@@ -647,6 +745,128 @@ let isRunning = false;
 
 const POSITION_STORAGE_PREFIX =
 "quant-dashboard-position";
+
+let instrumentSearchTimer = null;
+
+function parseInstrumentSelection(value){
+
+const parts =
+String(value || "").split("|").map(part => part.trim());
+
+const instrumentId =
+(parts[0] || "").match(/\d+/)?.[0] || "28";
+
+return {
+instrumentId,
+symbol:
+parts[1] || "",
+name:
+parts[2] || ""
+};
+
+}
+
+function setSelectedInstrument(selection){
+
+document.getElementById("instrumentInput").value =
+selection.instrumentId || "28";
+
+document.getElementById("instrumentSymbolInput").value =
+selection.symbol || "";
+
+if(selection.display){
+document.getElementById("instrumentSearchInput").value =
+selection.display;
+}
+
+}
+
+async function handleInstrumentSearchInput(){
+
+const input =
+document.getElementById("instrumentSearchInput");
+
+const selection =
+parseInstrumentSelection(input.value);
+
+setSelectedInstrument(selection);
+
+clearTimeout(instrumentSearchTimer);
+
+if(input.value.trim().length < 2){
+return;
+}
+
+instrumentSearchTimer =
+setTimeout(async () => {
+
+try{
+
+const response =
+await fetch(
+`/api/instruments?query=${encodeURIComponent(input.value.trim())}`
+);
+
+const result =
+await response.json();
+
+if(!response.ok || !result.success){
+throw new Error(result.error || `HTTP ${response.status}`);
+}
+
+renderInstrumentSearchResults(result.instruments || []);
+
+}catch(err){
+
+console.error(err);
+
+}
+
+},300);
+
+}
+
+function renderInstrumentSearchResults(instruments){
+
+const box =
+document.getElementById("instrumentSearchResults");
+
+if(!box){
+return;
+}
+
+if(!instruments.length){
+box.style.display =
+"none";
+return;
+}
+
+box.innerHTML =
+instruments.map(instrument => {
+
+const display =
+`${instrument.instrumentId} | ${instrument.symbol || "--"} | ${instrument.name || "Instrument"}`;
+
+return `<button type="button" onclick='chooseInstrument(${JSON.stringify(display)})'>${display}</button>`;
+
+}).join("");
+
+box.style.display =
+"block";
+
+}
+
+function chooseInstrument(display){
+
+setSelectedInstrument({
+...parseInstrumentSelection(display),
+display
+});
+
+document.getElementById("instrumentSearchResults").style.display =
+"none";
+
+}
 
 /*
 ==================================================
