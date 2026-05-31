@@ -347,6 +347,16 @@ Multi-Timeframe:
 <span id="multiTimeframeTrend">--</span>
 </div>
 
+<div class="metric">
+Market Regime:
+<span id="marketRegime">--</span>
+</div>
+
+<div class="metric">
+Trend Strength:
+<span id="trendStrength">--</span>
+</div>
+
 </div>
 
 <div class="card">
@@ -459,6 +469,31 @@ Risk / Reward:
 </div>
 
 <div class="metric">
+Risk Per Trade:
+<span id="riskPerTrade">--</span>
+</div>
+
+<div class="metric">
+Risk Amount:
+<span id="recommendedRiskAmount">--</span>
+</div>
+
+<div class="metric">
+Suggested Investment:
+<span id="recommendedInvestment">--</span>
+</div>
+
+<div class="metric">
+Suggested Units:
+<span id="recommendedUnits">--</span>
+</div>
+
+<div class="metric">
+Drawdown Guard:
+<span id="drawdownGuard">--</span>
+</div>
+
+<div class="metric">
 Signal Quality:
 <span id="signalQuality">--</span>
 </div>
@@ -520,6 +555,16 @@ Max Drawdown:
 </div>
 
 <div class="metric">
+Best Threshold:
+<span id="backtestBestThreshold">--</span>
+</div>
+
+<div class="metric">
+Guard:
+<span id="backtestDrawdownGuard">--</span>
+</div>
+
+<div class="metric">
 Data Note:
 <span id="backtestDataWarning">--</span>
 </div>
@@ -529,6 +574,13 @@ id="backtestTrades"
 class="auditTerminal"
 >
 Loading backtest...
+</pre>
+
+<pre
+id="backtestThresholds"
+class="auditTerminal"
+>
+Loading threshold test...
 </pre>
 
 </div>
@@ -1014,6 +1066,8 @@ setValue("oneHourTrend",data.oneHourTrend);
 setValue("fourHourTrend",data.fourHourTrend);
 setValue("oneDayTrend",data.oneDayTrend);
 setValue("multiTimeframeTrend",data.multiTimeframeTrend);
+setValue("marketRegime",data.marketRegime);
+setValue("trendStrength",data.trendStrength);
 
 setValue("price",data.price);
 setValue("ask",data.ask);
@@ -1038,6 +1092,11 @@ setValue("trailingStopAdvice",data.trailingStopAdvice);
 
 setValue("risk",data.riskScore);
 setValue("riskReward",data.riskRewardRatio);
+setValue("riskPerTrade",data.riskPerTrade);
+setValue("recommendedRiskAmount",data.recommendedRiskAmount);
+setValue("recommendedInvestment",data.recommendedInvestment);
+setValue("recommendedUnits",data.recommendedUnits);
+setValue("drawdownGuard",data.drawdownGuard);
 setValue("signalQuality",data.signalQuality);
 
 setValue("pnl",data.pnl);
@@ -1077,6 +1136,9 @@ async function renderBacktestQuality(){
 const tradesDisplay =
 document.getElementById("backtestTrades");
 
+const thresholdsDisplay =
+document.getElementById("backtestThresholds");
+
 if(!tradesDisplay){
 return;
 }
@@ -1107,6 +1169,8 @@ setValue("backtestWinRate",result.winRate);
 setValue("backtestAverageReturn",result.averageReturn);
 setValue("backtestCumulativeReturn",result.cumulativeReturn);
 setValue("backtestMaxDrawdown",result.maxDrawdown);
+setValue("backtestBestThreshold",result.bestThreshold);
+setValue("backtestDrawdownGuard",result.drawdownGuard);
 setValue("backtestDataWarning",result.dataWarning || "OK");
 
 if(
@@ -1128,6 +1192,26 @@ tradesDisplay.innerHTML =
 
 }
 
+if(
+thresholdsDisplay &&
+Array.isArray(result.thresholdResults) &&
+result.thresholdResults.length > 0
+){
+
+thresholdsDisplay.innerHTML =
+result.thresholdResults.map(item => {
+
+return `Score ${item.threshold} | Signals ${item.totalSignals} | Win ${item.winRate} | Avg ${item.averageReturn} | DD ${item.maxDrawdown} | Guard ${item.drawdownGuardActive ? "ACTIVE" : "OK"}`;
+
+}).join("\n");
+
+}else if(thresholdsDisplay){
+
+thresholdsDisplay.innerHTML =
+"No threshold comparison available.";
+
+}
+
 }catch(err){
 
 console.error(err);
@@ -1137,10 +1221,17 @@ setValue("backtestWinRate","--");
 setValue("backtestAverageReturn","--");
 setValue("backtestCumulativeReturn","--");
 setValue("backtestMaxDrawdown","--");
+setValue("backtestBestThreshold","--");
+setValue("backtestDrawdownGuard","--");
 setValue("backtestDataWarning","--");
 
 tradesDisplay.innerHTML =
 `Backtest error: ${err.message}`;
+
+if(thresholdsDisplay){
+thresholdsDisplay.innerHTML =
+`Threshold test error: ${err.message}`;
+}
 
 }
 

@@ -54,6 +54,18 @@ const TRAILING_ATR_MULTIPLIER =
 const MIN_SIGNAL_SCORE =
   70;
 
+const MAX_ACCEPTABLE_BACKTEST_DRAWDOWN =
+  -25;
+
+const RISK_PER_TRADE_PERCENT =
+  1;
+
+const MIN_TREND_STRENGTH_PERCENT =
+  0.6;
+
+const MIN_RECENT_RANGE_PERCENT =
+  1;
+
 /*
 ==================================================
 FETCH WITH TIMEOUT
@@ -345,7 +357,7 @@ function buildSignalScore({
   addFactor(
     "RSI in signal zone",
     15,
-    direction === "BUY"
+    direction === "BULLISH"
     ? rsi > 50 && rsi < 68
     : rsi < 40
   );
@@ -375,6 +387,141 @@ function buildSignalScore({
     factors,
     passed:
       score >= MIN_SIGNAL_SCORE
+  };
+}
+
+function analyzeMarketRegime({
+  closes,
+  ema20,
+  ema50,
+  ema100,
+  atrPercent
+}){
+  const currentPrice =
+    closes[closes.length - 1] || 0;
+
+  const recentCloses =
+    closes.slice(-20);
+
+  const recentHigh =
+    Math.max(...recentCloses);
+
+  const recentLow =
+    Math.min(...recentCloses);
+
+  const recentRangePercent =
+    currentPrice > 0
+    ? ((recentHigh - recentLow) / currentPrice) * 100
+    : 0;
+
+  const trendStrengthPercent =
+    currentPrice > 0
+    ? (Math.abs(ema20 - ema100) / currentPrice) * 100
+    : 0;
+
+  if(atrPercent > MAX_ATR_PERCENT){
+    return {
+      regime:"HIGH VOLATILITY",
+      tradable:false,
+      trendStrengthPercent,
+      recentRangePercent
+    };
+  }
+
+  if(
+    trendStrengthPercent < MIN_TREND_STRENGTH_PERCENT ||
+    recentRangePercent < MIN_RECENT_RANGE_PERCENT
+  ){
+    return {
+      regime:"CHOPPY",
+      tradable:false,
+      trendStrengthPercent,
+      recentRangePercent
+    };
+  }
+
+  if(
+    ema20 > ema50 &&
+    ema50 > ema100
+  ){
+    return {
+      regime:"TRENDING UP",
+      tradable:true,
+      trendStrengthPercent,
+      recentRangePercent
+    };
+  }
+
+  if(
+    ema20 < ema50 &&
+    ema50 < ema100
+  ){
+    return {
+      regime:"TRENDING DOWN",
+      tradable:true,
+      trendStrengthPercent,
+      recentRangePercent
+    };
+  }
+
+  return {
+    regime:"MIXED",
+    tradable:false,
+    trendStrengthPercent,
+    recentRangePercent
+  };
+}
+
+function getRiskSizing({
+  amountInvested,
+  leverage,
+  currentPrice,
+  riskDistance
+}){
+  const riskCapital =
+    Math.max(0, amountInvested) *
+    (RISK_PER_TRADE_PERCENT / 100);
+
+  const stopDistancePercent =
+    currentPrice > 0
+    ? riskDistance / currentPrice
+    : 0;
+
+  const uncappedPositionValue =
+    stopDistancePercent > 0
+    ? riskCapital / stopDistancePercent
+    : 0;
+
+  const maxExposure =
+    Math.max(0, amountInvested) *
+    Math.max(1, leverage);
+
+  const recommendedPositionValue =
+    Math.min(
+      uncappedPositionValue,
+      maxExposure
+    );
+
+  const recommendedInvestment =
+    leverage > 0
+    ? recommendedPositionValue / leverage
+    : recommendedPositionValue;
+
+  const recommendedUnits =
+    currentPrice > 0
+    ? recommendedPositionValue / currentPrice
+    : 0;
+
+  return {
+    riskPercent:
+      RISK_PER_TRADE_PERCENT,
+    riskCapital,
+    stopDistancePercent:
+      stopDistancePercent * 100,
+    recommendedPositionValue,
+    recommendedInvestment,
+    recommendedUnits,
+    maxExposure
   };
 }
 
@@ -431,6 +578,12 @@ export default async function handler(req,res){
 
     const savedPosition =
       await redis.get(positionStateKey);
+
+    const backtestSummaryKey =
+      `backtest-summary-${instrumentId}`;
+
+    const backtestSummary =
+      await redis.get(backtestSummaryKey);
 
     let holding =
       req.query.holding || "no";
@@ -738,6 +891,15 @@ export default async function handler(req,res){
       ? (atr / currentPrice) * 100
       : 0;
 
+    const marketRegime =
+      analyzeMarketRegime({
+        closes,
+        ema20,
+        ema50,
+        ema100,
+        atrPercent
+      });
+
     /*
     ==============================================
     TRENDS
@@ -795,6 +957,10 @@ export default async function handler(req,res){
 
     if(!multiTimeframeConfirmed){
       signalWarnings.push("TIMEFRAMES NOT ALIGNED");
+    }
+
+    if(!marketRegime.tradable){
+      signalWarnings.push(`REGIME ${marketRegime.regime}`);
     }
 
     const spreadOk =
@@ -889,6 +1055,14 @@ export default async function handler(req,res){
       ? rewardDistance / riskDistance
       : 0;
 
+    const riskSizing =
+      getRiskSizing({
+        amountInvested,
+        leverage,
+        currentPrice,
+        riskDistance
+      });
+
     const buySignalScore =
       buildSignalScore({
         direction:"BULLISH",
@@ -930,6 +1104,32 @@ export default async function handler(req,res){
 
     if(!signalScore.passed){
       signalWarnings.push("SCORE BELOW THRESHOLD");
+    }
+
+    if(
+      signal !== "HOLD" &&
+      !marketRegime.tradable
+    ){
+      signal = "HOLD";
+      signalWarnings.push("REGIME FILTER BLOCKED SIGNAL");
+    }
+
+    const backtestDrawdownValue =
+      parseFloat(
+        String(backtestSummary?.maxDrawdown || "0")
+          .replace("%","")
+      );
+
+    const drawdownGuardActive =
+      Boolean(backtestSummary?.drawdownGuardActive) ||
+      backtestDrawdownValue <= MAX_ACCEPTABLE_BACKTEST_DRAWDOWN;
+
+    if(
+      signal !== "HOLD" &&
+      drawdownGuardActive
+    ){
+      signal = "HOLD";
+      signalWarnings.push("DRAWDOWN GUARD ACTIVE");
     }
 
     if(
@@ -1149,6 +1349,7 @@ export default async function handler(req,res){
                 Mid ${midTrend}
                 Long ${longTrend}
                 Multi-timeframe ${multiTimeframeTrend}
+                Regime:${marketRegime.regime}
                 Duration:${duration}
                 Confidence:${confidence}%
                 Trailing Stop:${trailingStopLoss}`
@@ -1174,7 +1375,7 @@ export default async function handler(req,res){
     ==============================================
     */
     const logEntry =
-`${new Date().toISOString()} | ${signal} | ${currentPrice.toFixed(2)} | RSI ${rsi.toFixed(2)} | MTF ${multiTimeframeTrend} | Spread ${spreadPercent.toFixed(3)}% | ATR ${atrPercent.toFixed(3)}% | RR ${riskRewardRatio.toFixed(2)} | TSL ${trailingStopLoss}`;
+`${new Date().toISOString()} | ${signal} | ${currentPrice.toFixed(2)} | RSI ${rsi.toFixed(2)} | MTF ${multiTimeframeTrend} | Regime ${marketRegime.regime} | Spread ${spreadPercent.toFixed(3)}% | ATR ${atrPercent.toFixed(3)}% | RR ${riskRewardRatio.toFixed(2)} | TSL ${trailingStopLoss}`;
 
     const signalHistoryEntry = {
       time:
@@ -1202,10 +1403,15 @@ export default async function handler(req,res){
 
       multiTimeframeTrend,
 
+      marketRegime:
+        marketRegime.regime,
+
       trailingStopLoss,
 
       signalScore:
         signalScore.score,
+
+      drawdownGuardActive,
 
       warnings:
         signalWarnings
@@ -1272,6 +1478,18 @@ export default async function handler(req,res){
 
       multiTimeframeConfirmed,
 
+      marketRegime:
+        marketRegime.regime,
+
+      marketRegimeTradable:
+        marketRegime.tradable,
+
+      trendStrength:
+        marketRegime.trendStrengthPercent.toFixed(3)+"%",
+
+      recentRange:
+        marketRegime.recentRangePercent.toFixed(3)+"%",
+
       price:
         currentPrice.toFixed(2),
 
@@ -1321,6 +1539,32 @@ export default async function handler(req,res){
 
       riskRewardRatio:
         riskRewardRatio.toFixed(2),
+
+      riskPerTrade:
+        riskSizing.riskPercent.toFixed(2)+"%",
+
+      recommendedRiskAmount:
+        riskSizing.riskCapital.toFixed(2),
+
+      recommendedInvestment:
+        riskSizing.recommendedInvestment.toFixed(2),
+
+      recommendedPositionValue:
+        riskSizing.recommendedPositionValue.toFixed(2),
+
+      recommendedUnits:
+        riskSizing.recommendedUnits.toFixed(4),
+
+      stopDistance:
+        riskSizing.stopDistancePercent.toFixed(3)+"%",
+
+      drawdownGuard:
+        drawdownGuardActive
+        ? "ACTIVE"
+        : "OK",
+
+      backtestDrawdown:
+        backtestSummary?.maxDrawdown || "--",
 
       signalQuality:
         signalWarnings.length

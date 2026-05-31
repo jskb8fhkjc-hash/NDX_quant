@@ -1,3 +1,15 @@
+import { Redis } from "@upstash/redis";
+
+const redis = new Redis({
+  url:
+    process.env.UPSTASH_REDIS_REST_KV_REST_API_URL ||
+    process.env.UPSTASH_REDIS_REST_URL,
+
+  token:
+    process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN ||
+    process.env.UPSTASH_REDIS_REST_TOKEN
+});
+
 /*
 ==================================================
 UUID
@@ -33,6 +45,12 @@ const MAX_SPREAD_PERCENT =
 
 const MIN_RISK_REWARD =
   1.5;
+
+const MAX_ACCEPTABLE_DRAWDOWN =
+  -25;
+
+const SCORE_THRESHOLDS =
+  [60,70,80,90];
 
 async function fetchWithTimeout(
   url,
@@ -247,6 +265,33 @@ function analyzeDailySetup(
     ? rewardDistance / riskDistance
     : 0;
 
+  const trendStrengthPercent =
+    currentPrice > 0
+    ? (
+      Math.abs(
+        ema20 - (hasEma100 ? ema100 : ema50)
+      ) / currentPrice
+    ) * 100
+    : 0;
+
+  const recentCloses =
+    closes.slice(-20);
+
+  const recentRangePercent =
+    currentPrice > 0
+    ? (
+      (
+        Math.max(...recentCloses) -
+        Math.min(...recentCloses)
+      ) / currentPrice
+    ) * 100
+    : 0;
+
+  const regimeTradable =
+    atrPercent <= MAX_ATR_PERCENT &&
+    trendStrengthPercent >= 0.6 &&
+    recentRangePercent >= 1;
+
   const base = {
     currentPrice,
     rsi,
@@ -258,7 +303,9 @@ function analyzeDailySetup(
     scoreDirection({
       ...base,
       trendOk:bullishTrend,
-      momentumOk:momentumUp,
+      momentumOk:
+        momentumUp &&
+        regimeTradable,
       rsiOk:
         rsi > 50 &&
         rsi < 68,
@@ -269,7 +316,9 @@ function analyzeDailySetup(
     scoreDirection({
       ...base,
       trendOk:bearishTrend,
-      momentumOk:momentumDown,
+      momentumOk:
+        momentumDown &&
+        regimeTradable,
       rsiOk:
         rsi < 40,
       spreadPercent
@@ -357,6 +406,135 @@ function getMaxDrawdown(equityCurve){
   return maxDrawdown;
 }
 
+function summarizeTrades({
+  trades,
+  equityCurve,
+  cumulativeReturn
+}){
+  const wins =
+    trades.filter(
+      trade => parseFloat(trade.returnPercent) > 0
+    ).length;
+
+  const losses =
+    trades.length - wins;
+
+  const returns =
+    trades.map(
+      trade => parseFloat(trade.returnPercent)
+    );
+
+  const avgReturn =
+    returns.length
+    ? returns.reduce((a,b)=>a+b,0) / returns.length
+    : 0;
+
+  const maxDrawdownValue =
+    getMaxDrawdown(equityCurve) * 100;
+
+  return {
+    totalSignals:
+      trades.length,
+    buySignals:
+      trades.filter(trade => trade.signal === "BUY").length,
+    sellSignals:
+      trades.filter(trade => trade.signal === "SELL").length,
+    wins,
+    losses,
+    winRate:
+      trades.length
+      ? ((wins / trades.length) * 100).toFixed(1)+"%"
+      : "0.0%",
+    averageReturn:
+      avgReturn.toFixed(2)+"%",
+    cumulativeReturn:
+      (cumulativeReturn * 100).toFixed(2)+"%",
+    maxDrawdown:
+      maxDrawdownValue.toFixed(2)+"%",
+    maxDrawdownValue,
+    drawdownGuardActive:
+      maxDrawdownValue <= MAX_ACCEPTABLE_DRAWDOWN
+  };
+}
+
+function runBacktest({
+  candles,
+  horizonDays,
+  spreadPercent,
+  minSignalScore,
+  warmupCandles
+}){
+  const trades = [];
+  const equityCurve = [0];
+  let cumulativeReturn = 0;
+
+  for(
+    let i=warmupCandles;
+    i<candles.length - horizonDays;
+    i++
+  ){
+    const setupCandles =
+      candles.slice(0,i+1);
+
+    const setup =
+      analyzeDailySetup(
+        setupCandles,
+        spreadPercent,
+        minSignalScore
+      );
+
+    if(setup.signal === "HOLD"){
+      continue;
+    }
+
+    const entryPrice =
+      candles[i].close;
+
+    const exitPrice =
+      candles[i+horizonDays].close;
+
+    const grossReturn =
+      setup.signal === "BUY"
+      ? (exitPrice - entryPrice) / entryPrice
+      : (entryPrice - exitPrice) / entryPrice;
+
+    const netReturn =
+      grossReturn -
+      spreadPercent / 100;
+
+    cumulativeReturn += netReturn;
+    equityCurve.push(cumulativeReturn);
+
+    trades.push({
+      date:
+        candles[i].fromDate,
+      signal:
+        setup.signal,
+      score:
+        setup.score,
+      entry:
+        entryPrice.toFixed(2),
+      exit:
+        exitPrice.toFixed(2),
+      returnPercent:
+        (netReturn * 100).toFixed(2),
+      rsi:
+        setup.rsi.toFixed(2),
+      atrPercent:
+        setup.atrPercent.toFixed(3)
+    });
+  }
+
+  return {
+    trades,
+    ...summarizeTrades({
+      trades,
+      equityCurve,
+      cumulativeReturn
+    })
+  };
+}
+
 export default async function handler(req,res){
   try{
     const API_KEY =
@@ -437,6 +615,9 @@ export default async function handler(req,res){
         averageReturn:"0.00%",
         cumulativeReturn:"0.00%",
         maxDrawdown:"0.00%",
+        drawdownGuard:"OK",
+        bestThreshold:"--",
+        thresholdResults:[],
         dataWarning:
           `Only ${candles.length} daily candles returned. Need at least ${minimumCandles} to run even a reduced backtest.`,
         recentTrades:[]
@@ -467,84 +648,84 @@ export default async function handler(req,res){
       ? null
       : `Limited history mode: ${candles.length} daily candles returned, so the backtest used EMA20/EMA50 with a lower score threshold. Treat this as weaker evidence.`;
 
-    const trades = [];
-    const equityCurve = [0];
-    let cumulativeReturn = 0;
-
-    for(
-      let i=warmupCandles;
-      i<candles.length - horizonDays;
-      i++
-    ){
-      const setupCandles =
-        candles.slice(0,i+1);
-
-      const setup =
-        analyzeDailySetup(
-          setupCandles,
-          spreadPercent,
-          minSignalScore
-        );
-
-      if(setup.signal === "HOLD"){
-        continue;
-      }
-
-      const entryPrice =
-        candles[i].close;
-
-      const exitPrice =
-        candles[i+horizonDays].close;
-
-      const grossReturn =
-        setup.signal === "BUY"
-        ? (exitPrice - entryPrice) / entryPrice
-        : (entryPrice - exitPrice) / entryPrice;
-
-      const netReturn =
-        grossReturn -
-        spreadPercent / 100;
-
-      cumulativeReturn += netReturn;
-      equityCurve.push(cumulativeReturn);
-
-      trades.push({
-        date:
-          candles[i].fromDate,
-        signal:
-          setup.signal,
-        score:
-          setup.score,
-        entry:
-          entryPrice.toFixed(2),
-        exit:
-          exitPrice.toFixed(2),
-        returnPercent:
-          (netReturn * 100).toFixed(2),
-        rsi:
-          setup.rsi.toFixed(2),
-        atrPercent:
-          setup.atrPercent.toFixed(3)
+    const primaryBacktest =
+      runBacktest({
+        candles,
+        horizonDays,
+        spreadPercent,
+        minSignalScore,
+        warmupCandles
       });
-    }
 
-    const wins =
-      trades.filter(
-        trade => parseFloat(trade.returnPercent) > 0
-      ).length;
+    const thresholdResults =
+      SCORE_THRESHOLDS.map(threshold => {
+        const result =
+          runBacktest({
+            candles,
+            horizonDays,
+            spreadPercent,
+            minSignalScore:threshold,
+            warmupCandles
+          });
 
-    const losses =
-      trades.length - wins;
+        return {
+          threshold,
+          totalSignals:
+            result.totalSignals,
+          winRate:
+            result.winRate,
+          averageReturn:
+            result.averageReturn,
+          cumulativeReturn:
+            result.cumulativeReturn,
+          maxDrawdown:
+            result.maxDrawdown,
+          drawdownGuardActive:
+            result.drawdownGuardActive
+        };
+      });
 
-    const returns =
-      trades.map(
-        trade => parseFloat(trade.returnPercent)
-      );
+    const bestThreshold =
+      thresholdResults
+        .filter(result => !result.drawdownGuardActive)
+        .sort(
+          (a,b)=>
+            parseFloat(b.averageReturn) -
+            parseFloat(a.averageReturn)
+        )[0] ||
+      thresholdResults
+        .sort(
+          (a,b)=>
+            parseFloat(b.maxDrawdown) -
+            parseFloat(a.maxDrawdown)
+        )[0];
 
-    const avgReturn =
-      returns.length
-      ? returns.reduce((a,b)=>a+b,0) / returns.length
-      : 0;
+    const summaryForRedis = {
+      instrumentId,
+      horizonDays,
+      minSignalScore,
+      totalSignals:
+        primaryBacktest.totalSignals,
+      winRate:
+        primaryBacktest.winRate,
+      averageReturn:
+        primaryBacktest.averageReturn,
+      cumulativeReturn:
+        primaryBacktest.cumulativeReturn,
+      maxDrawdown:
+        primaryBacktest.maxDrawdown,
+      drawdownGuardActive:
+        primaryBacktest.drawdownGuardActive,
+      bestThreshold:
+        bestThreshold?.threshold || minSignalScore,
+      updatedAt:
+        new Date().toISOString()
+    };
+
+    await redis.set(
+      `backtest-summary-${instrumentId}`,
+      summaryForRedis
+    );
 
     return res.status(200).json({
       success:true,
@@ -556,25 +737,32 @@ export default async function handler(req,res){
       minSignalScore,
       dataWarning,
       totalSignals:
-        trades.length,
+        primaryBacktest.totalSignals,
       buySignals:
-        trades.filter(trade => trade.signal === "BUY").length,
+        primaryBacktest.buySignals,
       sellSignals:
-        trades.filter(trade => trade.signal === "SELL").length,
-      wins,
-      losses,
+        primaryBacktest.sellSignals,
+      wins:
+        primaryBacktest.wins,
+      losses:
+        primaryBacktest.losses,
       winRate:
-        trades.length
-        ? ((wins / trades.length) * 100).toFixed(1)+"%"
-        : "0.0%",
+        primaryBacktest.winRate,
       averageReturn:
-        avgReturn.toFixed(2)+"%",
+        primaryBacktest.averageReturn,
       cumulativeReturn:
-        (cumulativeReturn * 100).toFixed(2)+"%",
+        primaryBacktest.cumulativeReturn,
       maxDrawdown:
-        (getMaxDrawdown(equityCurve) * 100).toFixed(2)+"%",
+        primaryBacktest.maxDrawdown,
+      drawdownGuard:
+        primaryBacktest.drawdownGuardActive
+        ? "ACTIVE"
+        : "OK",
+      bestThreshold:
+        bestThreshold?.threshold || minSignalScore,
+      thresholdResults,
       recentTrades:
-        trades.slice(-10).reverse()
+        primaryBacktest.trades.slice(-10).reverse()
     });
 
   }catch(err){
