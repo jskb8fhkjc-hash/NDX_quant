@@ -53,7 +53,18 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
     const setupCandles = candles.slice(0, i + 1);
     
     const regimeState = detectRegime(setupCandles) || { metrics: {} };
-    const ensemble = getEnsembleSignal(null, null, setupCandles, regimeState) || {};
+    
+    // FIX: Provide simulated/aligned timeframe context to satisfy getEnsembleSignal requirements
+    // This stops the engine from returning 'HOLD' on every iteration due to missing intraday properties
+    const simulatedHourCandles = setupCandles.slice(-24); // Map recent trend history
+    const simulatedFourHourCandles = setupCandles.slice(-48);
+
+    const ensemble = getEnsembleSignal(
+      simulatedHourCandles, 
+      simulatedFourHourCandles, 
+      setupCandles, 
+      regimeState
+    ) || {};
 
     // Filter using confidence metrics; handle undefined properties safely
     if (!ensemble.signal || ensemble.signal === "HOLD" || (ensemble.confidence || 0) < minConfidenceThreshold) {
@@ -71,7 +82,6 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
     cumulativeReturn += netReturn;
     equityCurve.push(cumulativeReturn);
 
-    // Safe toFixed wrapper handling missing metrics inside historical data points
     trades.push({
       date: candles[i].fromDate,
       signal: ensemble.signal,
@@ -105,7 +115,6 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
 
 export default async function handler(req, res) {
   try {
-    // FIX 1: Explicitly trim space and newline characters from production environment variables
     const API_KEY = (process.env.ETORO_API_KEY || "").trim();
     const USER_KEY = (process.env.ETORO_USER_KEY || "").trim();
     const instrumentId = req.query.instrumentId || "28";
@@ -146,7 +155,7 @@ export default async function handler(req, res) {
         averageReturn: result.averageReturn,
         cumulativeReturn: result.cumulativeReturn,
         maxDrawdown: result.maxDrawdown,
-        drawdownGuardActive: result.drawdownGuardActive
+        drawdownGuardActive: r => !!result.drawdownGuardActive
       };
     });
 
@@ -160,7 +169,7 @@ export default async function handler(req, res) {
       winRate: primaryBacktest.winRate, 
       cumulativeReturn: primaryBacktest.cumulativeReturn, 
       maxDrawdown: primaryBacktest.maxDrawdown, 
-      maxDrawdownValue: primaryBacktest.maxDrawdownValue, // Crucial for market.js drawdownGuard tracking
+      maxDrawdownValue: primaryBacktest.maxDrawdownValue, 
       updatedAt: new Date().toISOString()
     });
 
@@ -191,3 +200,4 @@ export default async function handler(req, res) {
     return res.status(500).json({ success: false, error: err.message });
   }
 }
+
