@@ -1,3 +1,4 @@
+import { EMA, RSI, ATR } from "../core/indicators.js";
 import { Redis } from "@upstash/redis";
 
 const redis = new Redis({
