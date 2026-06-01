@@ -17,6 +17,7 @@ function getCandlesFromResponse(candleData) {
 
 export default async function handler(req, res) {
   const instrumentId = req.query.instrumentId || "686";
+  const symbol = req.query.symbol || "NDX";
   try {
     const API_KEY = process.env.ETORO_API_KEY;
     const USER_KEY = process.env.ETORO_USER_KEY;
@@ -41,7 +42,7 @@ export default async function handler(req, res) {
     const daily = getCandlesFromResponse(await dayRes.json());
 
     const regimeState = detectRegime(daily);
-    const ensemble = getEnsembleSignal(oneHour, fourHour, daily, regimeState);
+    const ensemble = await getEnsembleSignal(oneHour, fourHour, daily, regimeState, instrumentId, symbol);
     
     const positionState = (await redis.get(`position-state-${instrumentId}`)) || {};
     const backtestSummary = (await redis.get(`backtest-summary-${instrumentId}`)) || {};
@@ -62,6 +63,12 @@ export default async function handler(req, res) {
     if (holding && entryPrice > 0) {
       exposure = (amountInvested * leverage).toFixed(2);
       pnl = (((currentPrice - entryPrice) / entryPrice) * amountInvested * leverage).toFixed(2);
+    }
+
+    // Adjust position size if high economic risk
+    let adjustedExposure = exposure;
+    if (ensemble.shouldReduceExposure && holding) {
+      adjustedExposure = (parseFloat(exposure) * 0.7).toFixed(2); // Reduce by 30%
     }
 
     const outputPayload = {
@@ -107,17 +114,27 @@ export default async function handler(req, res) {
       backtestDrawdown: backtestSummary?.maxDrawdown || "0.00%",
       signalQuality: regimeState.tradable ? "OK" : "HIGH VOLATILITY",
       pnl,
-      exposure,
+      exposure: adjustedExposure,
       positionAdvice: holding ? "HOLD" : "WAITING",
       holding,
       entryPrice,
       leverage,
-      amountInvested
+      amountInvested,
+      // NEW: Sentiment & Economic Risk Analysis
+      newsSentiment: ensemble.newsSentiment.toFixed(2),
+      newsCount: ensemble.newsCount,
+      economicRiskLevel: ensemble.economicRiskLevel,
+      hasUpcomingEconomicEvent: ensemble.hasUpcomingEvent,
+      upcomingEconomicEvents: ensemble.upcomingEvents,
+      shouldReduceExposure: ensemble.shouldReduceExposure,
+      finalScore: ensemble.finalScore,
+      scoreBreakdown: ensemble.scores
     };
 
-    await redis.lpush("system-audit-logs", `${new Date().toISOString()} | UI SYNC | Metrics compiled for ${instrumentId}`);
+    await redis.lpush("system-audit-logs", `${new Date().toISOString()} | UI SYNC | ${symbol} | Signal: ${ensemble.signal} | Confidence: ${ensemble.confidence}% | News Sentiment: ${ensemble.newsSentiment.toFixed(2)} | Economic Risk: ${ensemble.economicRiskLevel}`);
     return res.status(200).json(outputPayload);
   } catch (err) {
+    console.error("Market API error:", err);
     return res.status(500).json({ success: false, error: err.message });
   }
 }
