@@ -4,7 +4,11 @@ import { getEnsembleSignal } from "../core/strategy/aggregator.js";
 import { calculateRiskSizing } from "../core/risk.js";
 
 function uuidv4() { return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => (c === "x" ? Math.random() * 16 | 0 : (Math.random() * 16 | 0 & 0x3 | 0x8)).toString(16)); }
-const redis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN
+});
+
 const TELEGRAM_COOLDOWN_MS = 1000 * 60 * 60 * 4;
 
 async function fetchWithTimeout(url, options = {}, timeout = 15000) {
