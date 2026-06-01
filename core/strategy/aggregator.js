@@ -1,6 +1,8 @@
 import { RSI, EMA } from "../indicators.js";
+import { getNewsSentiment } from "./newsSentiment.js";
+import { getEconomicImpact, shouldReduceExposure } from "./economicCalendar.js";
 
-export function getEnsembleSignal(oneHour, fourHour, daily, regime) {
+export async function getEnsembleSignal(oneHour, fourHour, daily, regime, instrumentId, symbol) {
   const dCloses = daily.map(c => parseFloat(c.close));
   const currentPrice = dCloses[dCloses.length - 1];
   const rsi = RSI(dCloses, 14);
@@ -18,15 +20,68 @@ export function getEnsembleSignal(oneHour, fourHour, daily, regime) {
   if (rsi < 30) reversionScore = 100;
   if (rsi > 70) reversionScore = -100;
 
+  // Fetch news sentiment (weighted at 15%)
+  let newsScore = 0;
+  let newsSentiment = { sentimentScore: 0, newsCount: 0, recentNews: [] };
+  try {
+    newsSentiment = await getNewsSentiment(symbol);
+    // Cap sentiment score influence to prevent extreme swings
+    newsScore = (newsSentiment.sentimentScore / 100) * 15;
+  } catch (err) {
+    console.error("Failed to fetch news sentiment:", err);
+  }
+
+  // Fetch economic calendar data (weighted at 20%)
+  let economicScore = 0;
+  let economicData = { hasHighImpactEvent: false, impact: "NORMAL", riskLevel: "LOW", events: [] };
+  try {
+    economicData = await getEconomicImpact();
+    
+    // Penalize signals during high-impact economic events
+    if (economicData.riskLevel === "CRITICAL") economicScore = -25; // Strong caution
+    else if (economicData.riskLevel === "HIGH") economicScore = -15; // Moderate caution
+    else if (economicData.riskLevel === "LOW") economicScore = 0; // No penalty
+  } catch (err) {
+    console.error("Failed to fetch economic data:", err);
+  }
+
+  // Combine all scores with appropriate weights
   let finalScore = regime.direction === "SIDEWAYS" 
-    ? (momentumScore * 0.3) + (reversionScore * 0.7) 
-    : (momentumScore * 0.7) + (reversionScore * 0.3);
+    ? (momentumScore * 0.25) + (reversionScore * 0.6) + newsScore + economicScore * 0.15
+    : (momentumScore * 0.65) + (reversionScore * 0.2) + newsScore + economicScore * 0.15;
 
   let signal = "HOLD";
   let confidence = 50 + (Math.abs(finalScore) / 2);
 
-  if (finalScore >= 35 && regime.tradable) signal = "BUY";
-  else if (finalScore <= -35 && regime.tradable) signal = "SELL";
+  // Adjust confidence based on economic events
+  if (economicData.hasHighImpactEvent) confidence *= 0.7; // Reduce confidence by 30% during events
 
-  return { signal, confidence: Math.round(confidence), rsi };
+  // Stricter entry conditions during economic uncertainty
+  const confidenceThreshold = economicData.riskLevel === "HIGH" ? 70 : (economicData.riskLevel === "CRITICAL" ? 80 : 60);
+  
+  if (finalScore >= 35 && regime.tradable && confidence >= confidenceThreshold) signal = "BUY";
+  else if (finalScore <= -35 && regime.tradable && confidence >= confidenceThreshold) signal = "SELL";
+  
+  // Force HOLD or EXIT signal if critical economic event
+  if (economicData.riskLevel === "CRITICAL") signal = "HOLD";
+
+  return { 
+    signal, 
+    confidence: Math.round(Math.min(confidence, 100)),
+    rsi,
+    newsSentiment: newsSentiment.sentimentScore,
+    newsCount: newsSentiment.newsCount,
+    economicRiskLevel: economicData.riskLevel,
+    hasUpcomingEvent: economicData.hasHighImpactEvent,
+    shouldReduceExposure: shouldReduceExposure(economicData),
+    upcomingEvents: economicData.events,
+    finalScore: finalScore.toFixed(2),
+    // Metadata for debugging
+    scores: {
+      momentum: momentumScore,
+      reversion: reversionScore,
+      news: newsScore.toFixed(2),
+      economic: economicScore.toFixed(2)
+    }
+  };
 }
