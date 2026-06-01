@@ -19,9 +19,12 @@ export default async function handler(req, res) {
   const instrumentId = req.query.instrumentId || "28";
   const symbol = req.query.symbol || "NDX";
   try {
-    const API_KEY = process.env.ETORO_API_KEY;
-    const USER_KEY = process.env.ETORO_USER_KEY;
+    // FIX 1: Strip hidden newlines or carriage returns (\r, \n) causing header pattern crashes
+    const API_KEY = (process.env.ETORO_API_KEY || "").trim();
+    const USER_KEY = (process.env.ETORO_USER_KEY || "").trim();
     const BASE_URL = "https://public-api.etoro.com/api/v1";
+
+    if (!API_KEY || !USER_KEY) throw new Error("Missing eToro API credentials in environment.");
 
     const headers = { "x-api-key": API_KEY, "x-user-key": USER_KEY, "x-request-id": uuidv4() };
     const [liveRes, hourRes, fourHourRes, dayRes] = await Promise.all([
@@ -30,6 +33,11 @@ export default async function handler(req, res) {
       fetch(`${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/FourHours/200`, { headers }),
       fetch(`${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/OneDay/200`, { headers })
     ]);
+
+    // Validate responses before trying to parse JSON
+    if (!liveRes.ok) throw new Error(`Rates API failed with status ${liveRes.status}`);
+    if (!hourRes.ok || !fourHourRes.ok || !dayRes.ok) throw new Error(`Candle APIs rejected request.`);
+
 
     const liveData = await liveRes.json();
     const currentPrice = parseFloat(liveData.rates[0].lastExecution);
