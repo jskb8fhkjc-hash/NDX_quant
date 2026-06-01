@@ -1,43 +1,37 @@
 import { EMA, ADX, ATR } from "./indicators.js";
 
-const ADX_TREND_THRESHOLD = 25;
-const HIGH_VOLATILITY_ATR_PERCENT = 3.5; 
-const EXTREME_VOLATILITY_ATR_PERCENT = 5.5;
-
 export function detectRegime(candles) {
-  if (candles.length < 100) return { regime: "UNKNOWN", tradable: false, atr: 0 };
-
+  if (!candles || candles.length < 60) {
+    return { regime: "SIDEWAYS", direction: "MIXED", volatility: "QUIET", tradable: true, metrics: { atr: 0, atrPercent: 0, adx: 0 } };
+  }
   const closes = candles.map(c => parseFloat(c.close));
   const currentPrice = closes[closes.length - 1];
   
   const ema20 = EMA(closes.slice(-20), 20);
   const ema50 = EMA(closes.slice(-50), 50);
-  const ema100 = EMA(closes.slice(-100), 100);
+  const ema100 = closes.length >= 100 ? EMA(closes.slice(-100), 100) : ema50;
   
   const adxScore = ADX(candles, 14).adx;
   const atr = ATR(candles, 14);
-  const atrPercent = (atr / currentPrice) * 100;
+  const atrPercent = currentPrice > 0 ? (atr / currentPrice) * 100 : 0;
 
-  // 1. Map Volatility
   let volatility = "QUIET";
-  if (atrPercent > EXTREME_VOLATILITY_ATR_PERCENT) volatility = "EXTREME";
-  else if (atrPercent > HIGH_VOLATILITY_ATR_PERCENT) volatility = "EXPANDING";
+  if (atrPercent > 4.5) volatility = "EXTREME";
+  else if (atrPercent > 2.5) volatility = "EXPANDING";
 
-  // 2. Map Direction
   let direction = "SIDEWAYS";
-  if (adxScore > ADX_TREND_THRESHOLD) {
-    if (ema20 > ema50 && ema50 > ema100 && currentPrice > ema20) direction = "BULLISH";
-    if (ema20 < ema50 && ema50 < ema100 && currentPrice < ema20) direction = "BEARISH";
-  }
+  if (currentPrice > ema20 && ema20 > ema50) direction = "BULLISH";
+  else if (currentPrice < ema20 && ema20 < ema50) direction = "BEARISH";
 
-  // 3. Define Tradability (Block extreme chop)
-  const tradable = volatility !== "EXTREME" && !(direction === "SIDEWAYS" && volatility === "EXPANDING");
+  const trendStrengthPercent = currentPrice > 0 ? (Math.abs(ema20 - ema50) / currentPrice) * 100 : 0;
+  const tradable = volatility !== "EXTREME";
 
   return {
     regime: `${volatility} ${direction}`,
     direction,
     volatility,
     tradable,
-    metrics: { atr, atrPercent, adx: adxScore }
+    trendStrengthPercent,
+    metrics: { atr, atrPercent, adx: adxScore, ema20, ema50, ema100 }
   };
 }
