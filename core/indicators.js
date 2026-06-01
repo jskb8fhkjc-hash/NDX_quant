@@ -1,5 +1,5 @@
 export function EMA(data, period) {
-  if (!data.length) return 0;
+  if (!data || !data.length) return 0;
   const k = 2 / (period + 1);
   let ema = data[0];
   for (let i = 1; i < data.length; i++) {
@@ -9,7 +9,7 @@ export function EMA(data, period) {
 }
 
 export function RSI(closes, period = 14) {
-  if (closes.length < period + 1) return 50;
+  if (!closes || closes.length < period + 1) return 50;
   let gains = 0; let losses = 0;
   for (let i = 1; i <= period; i++) {
     const diff = closes[i] - closes[i - 1];
@@ -27,7 +27,7 @@ export function RSI(closes, period = 14) {
 }
 
 export function ATR(candles, period = 14) {
-  if (candles.length < period + 1) return 0;
+  if (!candles || candles.length < period + 1) return 0;
   const trs = [];
   for (let i = 1; i < candles.length; i++) {
     const high = parseFloat(candles[i].high);
@@ -38,11 +38,9 @@ export function ATR(candles, period = 14) {
   return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
 }
 
-// Phase 1 Requirement: True Trend Strength
 export function ADX(candles, period = 14) {
-  if (candles.length < period + 1) return { adx: 0 };
+  if (!candles || candles.length < period + 1) return { adx: 0 };
   let tr = [], plusDm = [], minusDm = [];
-  
   for (let i = 1; i < candles.length; i++) {
     const upMove = parseFloat(candles[i].high) - parseFloat(candles[i - 1].high);
     const downMove = parseFloat(candles[i - 1].low) - parseFloat(candles[i].low);
@@ -54,8 +52,6 @@ export function ADX(candles, period = 14) {
       Math.abs(parseFloat(candles[i].low) - parseFloat(candles[i - 1].close))
     ));
   }
-
-  // Wilder's Smoothing
   const smooth = (data) => {
     let sum = data.slice(0, period).reduce((a, b) => a + b, 0);
     const res = [sum];
@@ -65,7 +61,6 @@ export function ADX(candles, period = 14) {
     }
     return res;
   };
-
   const smoothTr = smooth(tr), smoothPdm = smooth(plusDm), smoothMdm = smooth(minusDm);
   let dx = [];
   for (let i = 0; i < smoothTr.length; i++) {
@@ -73,6 +68,5 @@ export function ADX(candles, period = 14) {
     const mdi = (smoothMdm[i] / smoothTr[i]) * 100 || 0;
     dx.push((Math.abs(pdi - mdi) / (pdi + mdi)) * 100 || 0);
   }
-
   return { adx: smooth(dx).pop() / period || 0 };
 }
