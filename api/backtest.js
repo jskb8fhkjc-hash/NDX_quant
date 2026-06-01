@@ -147,27 +147,59 @@ export default async function handler(req, res) {
       instrumentId, horizonDays, totalSignals: primaryBacktest.totalSignals, winRate: primaryBacktest.winRate, cumulativeReturn: primaryBacktest.cumulativeReturn, maxDrawdown: primaryBacktest.maxDrawdown, updatedAt: new Date().toISOString()
     });
 
+
     return res.status(200).json({
+
       success: true,
+
       instrumentId,
+
       horizonDays,
+
       candlesTested: candles.length,
+
       warmupCandles,
+
       minSignalScore: baseConfidenceThreshold,
+
       totalSignals: primaryBacktest.totalSignals,
+
       buySignals: primaryBacktest.buySignals,
+
+      
       sellSignals: primaryBacktest.sellSignals,
+
       wins: primaryBacktest.wins,
+
+      
       losses: primaryBacktest.losses,
-      winRate: primaryBacktest.winRate,
-      averageReturn: primaryBacktest.averageReturn,
-      cumulativeReturn: primaryBacktest.cumulativeReturn,
-      maxDrawdown: primaryBacktest.maxDrawdown,
+
+      winRate: typeof primaryBacktest.winRate === "number" ? primaryBacktest.winRate.toFixed(2) + "%" : (primaryBacktest.winRate || "0.00%"),
+
+      
+      averageReturn: typeof primaryBacktest.averageReturn === "number" ? primaryBacktest.averageReturn.toFixed(2) + "%" : (primaryBacktest.averageReturn || "0.00%"),
+
+      cumulativeReturn: typeof primaryBacktest.cumulativeReturn === "number" ? primaryBacktest.cumulativeReturn.toFixed(2) + "%" : (primaryBacktest.cumulativeReturn || "0.00%"),
+
+      
+      maxDrawdown: typeof primaryBacktest.maxDrawdown === "number" ? primaryBacktest.maxDrawdown.toFixed(2) + "%" : (primaryBacktest.maxDrawdown || "0.00%"),
+
       drawdownGuard: primaryBacktest.drawdownGuardActive ? "ACTIVE" : "OK",
+
+      
+      
       bestThreshold: bestThreshold?.threshold || baseConfidenceThreshold,
-      thresholdResults,
+om
+  
+      thresholdResults: (thresholdResults || []).map(r => ({
+    ...r,winRate: typeof r.winRate === "number" ? r.winRate.toFixed(2) : r.winRate,
+    maxDrawdown: typeof r.maxDrawdown === "number" ? r.maxDrawdown.toFixed(2) : r.maxDrawdown,
+    averageReturn: typeof r.averageReturn === "number" ? r.averageReturn.toFixed(2) : r.averageReturn
+      })),
+
       recentTrades: primaryBacktest.trades.slice(-10).reverse()
     });
+
 
   } catch (err) {
     console.error("BACKTEST ENGINE CONTEXT ERROR:", err);
