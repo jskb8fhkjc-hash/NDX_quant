@@ -3,7 +3,11 @@ import { detectRegime } from "../core/regime.js";
 import { getEnsembleSignal } from "../core/strategy/aggregator.js";
 
 function uuidv4() { return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => (c === "x" ? Math.random() * 16 | 0 : (Math.random() * 16 | 0 & 0x3 | 0x8)).toString(16)); }
-const redis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN });
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN
+});
+
 
 const SCORE_THRESHOLDS = [55, 60, 65, 70];
 const MAX_ACCEPTABLE_DRAWDOWN = -25.0;
