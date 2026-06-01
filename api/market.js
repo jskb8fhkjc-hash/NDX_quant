@@ -138,9 +138,28 @@ export default async function handler(req, res) {
       scoreBreakdown: ensemble.scores
     };
 
+        // FIX 2: Explicitly generate a valid JSON signal entry for your UI history component
+    const historyEntry = {
+      time: new Date().toISOString().substring(0, 19).replace("T", " "),
+      signal: ensemble.signal,
+      price: currentPrice.toFixed(2),
+      rsi: ensemble.rsi ? ensemble.rsi.toFixed(2) : "--",
+      multiTimeframeTrend: regimeState.direction || "--",
+      riskRewardRatio: "2.00",
+      trailingStopLoss: (currentPrice - (regimeState.metrics.atr * 2)).toFixed(2),
+      warnings: ensemble.shouldReduceExposure ? ["High Economic Risk Exposure"] : []
+    };
+    
+    // Save the object as a clean stringified JSON entry into Redis
+    await redis.lpush(`signal-history-${instrumentId}`, JSON.stringify(historyEntry));
+    await redis.ltrim(`signal-history-${instrumentId}`, 0, 19); // Keep list size optimized at 20 entries
+
+    // Your existing system-wide raw log remains right underneath
     await redis.lpush("system-audit-logs", `${new Date().toISOString()} | UI SYNC | ${symbol} (ID:${instrumentId}) | Signal: ${ensemble.signal} | Confidence: ${ensemble.confidence}% | News Sentiment: ${ensemble.newsSentiment.toFixed(2)} | Economic Risk: ${ensemble.economicRiskLevel}`);
+    
     return res.status(200).json(outputPayload);
-  } catch (err) {
+ 
+ } 
     console.error("Market API error:", err);
     return res.status(500).json({ success: false, error: err.message });
   }
