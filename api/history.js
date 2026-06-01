@@ -13,7 +13,7 @@ const redis = new Redis({
 export default async function handler(req, res){
   try{
     const instrumentId =
-      req.query.instrumentId || "686";
+      req.query.instrumentId || "28";
 
     const history =
       await redis.lrange(

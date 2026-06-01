@@ -16,7 +16,7 @@ function getCandlesFromResponse(candleData) {
 }
 
 export default async function handler(req, res) {
-  const instrumentId = req.query.instrumentId || "686";
+  const instrumentId = req.query.instrumentId || "28";
   const symbol = req.query.symbol || "NDX";
   try {
     const API_KEY = process.env.ETORO_API_KEY;
@@ -120,7 +120,6 @@ export default async function handler(req, res) {
       entryPrice,
       leverage,
       amountInvested,
-      // NEW: Sentiment & Economic Risk Analysis
       newsSentiment: ensemble.newsSentiment.toFixed(2),
       newsCount: ensemble.newsCount,
       economicRiskLevel: ensemble.economicRiskLevel,
@@ -131,7 +130,7 @@ export default async function handler(req, res) {
       scoreBreakdown: ensemble.scores
     };
 
-    await redis.lpush("system-audit-logs", `${new Date().toISOString()} | UI SYNC | ${symbol} | Signal: ${ensemble.signal} | Confidence: ${ensemble.confidence}% | News Sentiment: ${ensemble.newsSentiment.toFixed(2)} | Economic Risk: ${ensemble.economicRiskLevel}`);
+    await redis.lpush("system-audit-logs", `${new Date().toISOString()} | UI SYNC | ${symbol} (ID:${instrumentId}) | Signal: ${ensemble.signal} | Confidence: ${ensemble.confidence}% | News Sentiment: ${ensemble.newsSentiment.toFixed(2)} | Economic Risk: ${ensemble.economicRiskLevel}`);
     return res.status(200).json(outputPayload);
   } catch (err) {
     console.error("Market API error:", err);

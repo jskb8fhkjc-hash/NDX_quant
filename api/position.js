@@ -11,7 +11,7 @@ const redis = new Redis({
 });
 
 function getPositionStateKey(instrumentId){
-  return `position-state-${instrumentId || "686"}`;
+  return `position-state-${instrumentId || "28"}`;
 }
 
 function normalizePosition(position = {}){
@@ -42,7 +42,7 @@ function normalizePosition(position = {}){
 export default async function handler(req, res){
   try{
     const instrumentId =
-      req.query.instrumentId || "686";
+      req.query.instrumentId || "28";
 
     const positionStateKey =
       getPositionStateKey(instrumentId);
