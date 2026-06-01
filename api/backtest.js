@@ -100,9 +100,14 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
 
 export default async function handler(req, res) {
   try {
-    const API_KEY = process.env.ETORO_API_KEY;
-    const USER_KEY = process.env.ETORO_USER_KEY;
+    // FIX: Strip hidden newlines/carriage returns
+    const API_KEY = (process.env.ETORO_API_KEY || "").trim();
+    const USER_KEY = (process.env.ETORO_USER_KEY || "").trim();
     const instrumentId = req.query.instrumentId || "28";
+    
+    if (!API_KEY || !USER_KEY) throw new Error("Missing eToro API credentials in environment.");
+    
+    // ... rest of your backtest code
     const horizonDays = Math.max(1, Math.min(20, parseInt(req.query.horizonDays || "5", 10)));
     const spreadPercent = parseFloat(req.query.spreadPercent || "0.05");
 
