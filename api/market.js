@@ -90,7 +90,7 @@ export default async function handler(req, res) {
       atr: regimeState.metrics.atr.toFixed(2),
       atrPercent: regimeState.metrics.atrPercent.toFixed(3) + "%",
       entry: currentPrice.toFixed(2),
-      tradePlanDirection: ensemble.signal !== "HOLD" ? ensemble.signal : "HOLD",
+      tradePlanDirection: holding ? (ensemble.signal === "SELL" ? "EXIT" : "HOLD") : ensemble.signal,
       stopLoss: stopLoss.toFixed(2),
       takeProfit: takeProfit.toFixed(2),
       trailingStopLoss: (currentPrice - (regimeState.metrics.atr * 2)).toFixed(2),
