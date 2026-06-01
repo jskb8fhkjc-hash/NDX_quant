@@ -2,12 +2,14 @@ import { Redis } from "@upstash/redis";
 import { detectRegime } from "../core/regime.js";
 import { getEnsembleSignal } from "../core/strategy/aggregator.js";
 
-function uuidv4() { return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => (c === "x" ? Math.random() * 16 | 0 : (Math.random() * 16 | 0 & 0x3 | 0x8)).toString(16)); }
+function uuidv4() { 
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => (c === "x" ? Math.random() * 16 | 0 : (Math.random() * 16 | 0 & 0x3 | 0x8)).toString(16)); 
+}
+
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN
 });
-
 
 const SCORE_THRESHOLDS = [55, 60, 65, 70];
 const MAX_ACCEPTABLE_DRAWDOWN = -25.0;
@@ -15,8 +17,11 @@ const MAX_ACCEPTABLE_DRAWDOWN = -25.0;
 async function fetchWithTimeout(url, options = {}, timeout = 15000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
-  try { return await fetch(url, { ...options, signal: controller.signal }); } 
-  finally { clearTimeout(id); }
+  try { 
+    return await fetch(url, { ...options, signal: controller.signal }); 
+  } finally { 
+    clearTimeout(id); 
+  }
 }
 
 function getCandlesFromResponse(candleData) {
@@ -47,12 +52,11 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
   for (let i = warmupCandles; i < candles.length - horizonDays; i++) {
     const setupCandles = candles.slice(0, i + 1);
     
-    // Process setup using centralized institutional engine
-    const regimeState = detectRegime(setupCandles);
-    const ensemble = getEnsembleSignal(null, null, setupCandles, regimeState);
+    const regimeState = detectRegime(setupCandles) || { metrics: {} };
+    const ensemble = getEnsembleSignal(null, null, setupCandles, regimeState) || {};
 
-    // Filter using dynamic confidence metrics instead of rigid scores
-    if (ensemble.signal === "HOLD" || ensemble.confidence < minConfidenceThreshold) {
+    // Filter using confidence metrics; handle undefined properties safely
+    if (!ensemble.signal || ensemble.signal === "HOLD" || (ensemble.confidence || 0) < minConfidenceThreshold) {
       continue;
     }
 
@@ -67,15 +71,16 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
     cumulativeReturn += netReturn;
     equityCurve.push(cumulativeReturn);
 
+    // Safe toFixed wrapper handling missing metrics inside historical data points
     trades.push({
       date: candles[i].fromDate,
       signal: ensemble.signal,
-      score: ensemble.confidence, // Mapping score field to match frontend bindings
-      entry: entryPrice.toFixed(2),
-      exit: exitPrice.toFixed(2),
+      score: ensemble.confidence || 0,
+      entry: typeof entryPrice === "number" ? entryPrice.toFixed(2) : "0.00",
+      exit: typeof exitPrice === "number" ? exitPrice.toFixed(2) : "0.00",
       returnPercent: (netReturn * 100).toFixed(2),
-      rsi: ensemble.rsi.toFixed(2),
-      atrPercent: regimeState.metrics.atrPercent.toFixed(3)
+      rsi: typeof ensemble.rsi === "number" ? ensemble.rsi.toFixed(2) : "--",
+      atrPercent: typeof regimeState.metrics?.atrPercent === "number" ? regimeState.metrics.atrPercent.toFixed(3) : "0.000"
     });
   }
 
@@ -100,21 +105,25 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
 
 export default async function handler(req, res) {
   try {
-    // FIX: Strip hidden newlines/carriage returns
+    // FIX 1: Explicitly trim space and newline characters from production environment variables
     const API_KEY = (process.env.ETORO_API_KEY || "").trim();
     const USER_KEY = (process.env.ETORO_USER_KEY || "").trim();
     const instrumentId = req.query.instrumentId || "28";
-    
-    if (!API_KEY || !USER_KEY) throw new Error("Missing eToro API credentials in environment.");
-    
-    // ... rest of your backtest code
     const horizonDays = Math.max(1, Math.min(20, parseInt(req.query.horizonDays || "5", 10)));
     const spreadPercent = parseFloat(req.query.spreadPercent || "0.05");
+
+    if (!API_KEY || !USER_KEY) {
+      throw new Error("Missing eToro credentials in backend environment.");
+    }
 
     const candleResponse = await fetchWithTimeout(
       `https://public-api.etoro.com/api/v1/market-data/instruments/${instrumentId}/history/candles/desc/OneDay/1000`,
       { headers: { "x-api-key": API_KEY, "x-user-key": USER_KEY, "x-request-id": uuidv4() } }
     );
+
+    if (!candleResponse.ok) {
+      throw new Error(`eToro API rejected candle historical stream request (Status: ${candleResponse.status})`);
+    }
 
     const candles = getCandlesFromResponse(await candleResponse.json());
     const minimumCandles = 100 + horizonDays;
@@ -123,7 +132,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, instrumentId, horizonDays, totalSignals: 0, winRate: "0.0%", cumulativeReturn: "0.00%", maxDrawdown: "0.00%", thresholdResults: [], recentTrades: [] });
     }
 
-    const warmupCandles = 100; // Aligned with the requirements of our technical regime indicator window
+    const warmupCandles = 100; 
     const baseConfidenceThreshold = 60;
 
     const primaryBacktest = runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThreshold: baseConfidenceThreshold, warmupCandles });
@@ -143,63 +152,39 @@ export default async function handler(req, res) {
 
     const bestThreshold = thresholdResults.filter(r => !r.drawdownGuardActive).sort((a,b)=> parseFloat(b.averageReturn) - parseFloat(a.averageReturn))[0] || thresholdResults.sort((a,b)=> parseFloat(b.maxDrawdown) - parseFloat(a.maxDrawdown))[0];
 
+    // Persist optimized summary back into redis database cache
     await redis.set(`backtest-summary-${instrumentId}`, {
-      instrumentId, horizonDays, totalSignals: primaryBacktest.totalSignals, winRate: primaryBacktest.winRate, cumulativeReturn: primaryBacktest.cumulativeReturn, maxDrawdown: primaryBacktest.maxDrawdown, updatedAt: new Date().toISOString()
+      instrumentId, 
+      horizonDays, 
+      totalSignals: primaryBacktest.totalSignals, 
+      winRate: primaryBacktest.winRate, 
+      cumulativeReturn: primaryBacktest.cumulativeReturn, 
+      maxDrawdown: primaryBacktest.maxDrawdown, 
+      maxDrawdownValue: primaryBacktest.maxDrawdownValue, // Crucial for market.js drawdownGuard tracking
+      updatedAt: new Date().toISOString()
     });
-
 
     return res.status(200).json({
-
       success: true,
-
       instrumentId,
-
       horizonDays,
-
       candlesTested: candles.length,
-
       warmupCandles,
-
       minSignalScore: baseConfidenceThreshold,
-
       totalSignals: primaryBacktest.totalSignals,
-
       buySignals: primaryBacktest.buySignals,
-
-      
       sellSignals: primaryBacktest.sellSignals,
-
       wins: primaryBacktest.wins,
-
-      
       losses: primaryBacktest.losses,
-
-      winRate: typeof primaryBacktest.winRate === "number" ? primaryBacktest.winRate.toFixed(2) + "%" : (primaryBacktest.winRate || "0.00%"),
-
-      
-      averageReturn: typeof primaryBacktest.averageReturn === "number" ? primaryBacktest.averageReturn.toFixed(2) + "%" : (primaryBacktest.averageReturn || "0.00%"),
-
-      cumulativeReturn: typeof primaryBacktest.cumulativeReturn === "number" ? primaryBacktest.cumulativeReturn.toFixed(2) + "%" : (primaryBacktest.cumulativeReturn || "0.00%"),
-
-      
-      maxDrawdown: typeof primaryBacktest.maxDrawdown === "number" ? primaryBacktest.maxDrawdown.toFixed(2) + "%" : (primaryBacktest.maxDrawdown || "0.00%"),
-
+      winRate: primaryBacktest.winRate,
+      averageReturn: primaryBacktest.averageReturn,
+      cumulativeReturn: primaryBacktest.cumulativeReturn,
+      maxDrawdown: primaryBacktest.maxDrawdown,
       drawdownGuard: primaryBacktest.drawdownGuardActive ? "ACTIVE" : "OK",
-
-      
-      
       bestThreshold: bestThreshold?.threshold || baseConfidenceThreshold,
-om
-  
-      thresholdResults: (thresholdResults || []).map(r => ({
-    ...r,winRate: typeof r.winRate === "number" ? r.winRate.toFixed(2) : r.winRate,
-    maxDrawdown: typeof r.maxDrawdown === "number" ? r.maxDrawdown.toFixed(2) : r.maxDrawdown,
-    averageReturn: typeof r.averageReturn === "number" ? r.averageReturn.toFixed(2) : r.averageReturn
-      })),
-
+      thresholdResults,
       recentTrades: primaryBacktest.trades.slice(-10).reverse()
     });
-
 
   } catch (err) {
     console.error("BACKTEST ENGINE CONTEXT ERROR:", err);
