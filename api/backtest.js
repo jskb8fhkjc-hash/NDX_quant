@@ -102,7 +102,7 @@ export default async function handler(req, res) {
   try {
     const API_KEY = process.env.ETORO_API_KEY;
     const USER_KEY = process.env.ETORO_USER_KEY;
-    const instrumentId = req.query.instrumentId || "686";
+    const instrumentId = req.query.instrumentId || "28";
     const horizonDays = Math.max(1, Math.min(20, parseInt(req.query.horizonDays || "5", 10)));
     const spreadPercent = parseFloat(req.query.spreadPercent || "0.05");
 
