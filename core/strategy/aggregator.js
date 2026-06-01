@@ -1,5 +1,5 @@
 import { RSI, EMA } from "../indicators.js";
-import { getNewsSentiment } from "./newsSentiment.js";
+import { fetchLatestNews } from "./newsIntegration.js";
 import { getEconomicImpact, shouldReduceExposure } from "./economicCalendar.js";
 
 export async function getEnsembleSignal(oneHour, fourHour, daily, regime, instrumentId, symbol) {
@@ -24,7 +24,7 @@ export async function getEnsembleSignal(oneHour, fourHour, daily, regime, instru
   let newsScore = 0;
   let newsSentiment = { sentimentScore: 0, newsCount: 0, recentNews: [] };
   try {
-    newsSentiment = await getNewsSentiment(symbol);
+    newsSentiment = await fetchLatestNews(symbol);
     // Cap sentiment score influence to prevent extreme swings
     newsScore = (newsSentiment.sentimentScore / 100) * 15;
   } catch (err) {
@@ -56,32 +56,5 @@ export async function getEnsembleSignal(oneHour, fourHour, daily, regime, instru
   // Adjust confidence based on economic events
   if (economicData.hasHighImpactEvent) confidence *= 0.7; // Reduce confidence by 30% during events
 
-  // Stricter entry conditions during economic uncertainty
-  const confidenceThreshold = economicData.riskLevel === "HIGH" ? 70 : (economicData.riskLevel === "CRITICAL" ? 80 : 60);
-  
-  if (finalScore >= 35 && regime.tradable && confidence >= confidenceThreshold) signal = "BUY";
-  else if (finalScore <= -35 && regime.tradable && confidence >= confidenceThreshold) signal = "SELL";
-  
-  // Force HOLD or EXIT signal if critical economic event
-  if (economicData.riskLevel === "CRITICAL") signal = "HOLD";
-
-  return { 
-    signal, 
-    confidence: Math.round(Math.min(confidence, 100)),
-    rsi,
-    newsSentiment: newsSentiment.sentimentScore,
-    newsCount: newsSentiment.newsCount,
-    economicRiskLevel: economicData.riskLevel,
-    hasUpcomingEvent: economicData.hasHighImpactEvent,
-    shouldReduceExposure: shouldReduceExposure(economicData),
-    upcomingEvents: economicData.events,
-    finalScore: finalScore.toFixed(2),
-    // Metadata for debugging
-    scores: {
-      momentum: momentumScore,
-      reversion: reversionScore,
-      news: newsScore.toFixed(2),
-      economic: economicScore.toFixed(2)
-    }
-  };
+  return { signal, confidence, finalScore, newsSummary: newsSentiment.recentNews };
 }
