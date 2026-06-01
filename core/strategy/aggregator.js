@@ -5,41 +5,28 @@ export function getEnsembleSignal(oneHour, fourHour, daily, regime) {
   const currentPrice = dCloses[dCloses.length - 1];
   const rsi = RSI(dCloses, 14);
 
-  // 1. Momentum Model
   const isDailyBull = currentPrice > EMA(dCloses.slice(-20), 20);
-  
-  // Fallback smoothly if intraday (fourHour) streams aren't provided (like in backtesting)
   const is4hBull = (fourHour && fourHour.length)
     ? parseFloat(fourHour[fourHour.length - 1].close) > EMA(fourHour.map(c => parseFloat(c.close)).slice(-20), 20)
-    : currentPrice > EMA(dCloses.slice(-10), 10); // Backtest historical proxy
+    : currentPrice > EMA(dCloses.slice(-10), 10);
     
   let momentumScore = 0;
   if (isDailyBull && is4hBull) momentumScore = 100;
   if (!isDailyBull && !is4hBull) momentumScore = -100;
 
-  // 2. Mean Reversion Model
   let reversionScore = 0;
-  if (rsi < 35) reversionScore = 100; // Oversold -> Buy pressure
-  if (rsi > 65) reversionScore = -100; // Overbought -> Sell pressure
+  if (rsi < 30) reversionScore = 100;
+  if (rsi > 70) reversionScore = -100;
 
-  // 3. Dynamic Weighting based on current regime
-  let finalScore = 0;
-  if (regime.direction === "SIDEWAYS") {
-    finalScore = (momentumScore * 0.2) + (reversionScore * 0.8);
-  } else {
-    finalScore = (momentumScore * 0.8) + (reversionScore * 0.2); // Follow trend
-  }
+  let finalScore = regime.direction === "SIDEWAYS" 
+    ? (momentumScore * 0.3) + (reversionScore * 0.7) 
+    : (momentumScore * 0.7) + (reversionScore * 0.3);
 
   let signal = "HOLD";
-  let confidence = 50;
+  let confidence = 50 + (Math.abs(finalScore) / 2);
 
-  if (finalScore >= 40 && regime.tradable) {
-    signal = "BUY";
-    confidence = Math.min(100, 50 + (finalScore / 2));
-  } else if (finalScore <= -40 && regime.tradable) {
-    signal = "SELL";
-    confidence = Math.min(100, 50 + (Math.abs(finalScore) / 2));
-  }
+  if (finalScore >= 35 && regime.tradable) signal = "BUY";
+  else if (finalScore <= -35 && regime.tradable) signal = "SELL";
 
   return { signal, confidence: Math.round(confidence), rsi };
 }
