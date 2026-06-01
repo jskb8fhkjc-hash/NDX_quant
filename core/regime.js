@@ -2,7 +2,7 @@ import { EMA, ADX, ATR } from "./indicators.js";
 
 export function detectRegime(candles) {
   if (!candles || candles.length < 60) {
-    return { regime: "SIDEWAYS", direction: "MIXED", volatility: "QUIET", tradable: true, metrics: { atr: 0, atrPercent: 0, adx: 0 } };
+    return { regime: "SIDEWAYS", direction: "MIXED", volatility: "QUIET", tradable: true, metrics: { atr: 0, atrPercent: 0, adx: 0, ema20: 0, ema50: 0, ema100: 0 } };
   }
   const closes = candles.map(c => parseFloat(c.close));
   const currentPrice = closes[closes.length - 1];
