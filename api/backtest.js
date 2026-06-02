@@ -50,6 +50,8 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
   let cumulativeReturn = 0;
 
   for (let i = warmupCandles; i < candles.length - horizonDays; i++) {
+    const entryPrice = candles[i + 1] ? candles[i + 1].open : candles[i].close;
+    const exitPrice = candles[i + horizonDays] ? candles[i + horizonDays].close : candles[candles.length - 1].close;
     const setupCandles = candles.slice(0, i + 1);
     
     const regimeState = detectRegime(setupCandles) || { metrics: {} };
@@ -155,10 +157,10 @@ export default async function handler(req, res) {
         averageReturn: result.averageReturn,
         cumulativeReturn: result.cumulativeReturn,
         maxDrawdown: result.maxDrawdown,
-        drawdownGuardActive: r => !!result.drawdownGuardActive
+        // Provide the actual boolean value, not a function
+        drawdownGuardActive: !!result.drawdownGuardActive 
       };
     });
-
     const bestThreshold = thresholdResults.filter(r => !r.drawdownGuardActive).sort((a,b)=> parseFloat(b.averageReturn) - parseFloat(a.averageReturn))[0] || thresholdResults.sort((a,b)=> parseFloat(b.maxDrawdown) - parseFloat(a.maxDrawdown))[0];
 
     // Persist optimized summary back into redis database cache
