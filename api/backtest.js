@@ -50,8 +50,6 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
   let cumulativeReturn = 0;
 
   for (let i = warmupCandles; i < candles.length - horizonDays; i++) {
-    const entryPrice = candles[i + 1] ? candles[i + 1].open : candles[i].close;
-    const exitPrice = candles[i + horizonDays] ? candles[i + horizonDays].close : candles[candles.length - 1].close;
     const setupCandles = candles.slice(0, i + 1);
     
     const regimeState = detectRegime(setupCandles) || { metrics: {} };
@@ -73,12 +71,13 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
       continue;
     }
 
-    const entryPrice = candles[i].close;
-    const exitPrice = candles[i + horizonDays].close;
+    // Use candles[i] as entry signal point, and horizon days ahead for exit
+    const tradeEntryPrice = candles[i].close;
+    const tradeExitPrice = candles[i + horizonDays].close;
 
     const grossReturn = ensemble.signal === "BUY"
-      ? (exitPrice - entryPrice) / entryPrice
-      : (entryPrice - exitPrice) / entryPrice;
+      ? (tradeExitPrice - tradeEntryPrice) / tradeEntryPrice
+      : (tradeEntryPrice - tradeExitPrice) / tradeEntryPrice;
 
     const netReturn = grossReturn - (spreadPercent / 100);
     cumulativeReturn += netReturn;
@@ -88,8 +87,8 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
       date: candles[i].fromDate,
       signal: ensemble.signal,
       score: ensemble.confidence || 0,
-      entry: typeof entryPrice === "number" ? entryPrice.toFixed(2) : "0.00",
-      exit: typeof exitPrice === "number" ? exitPrice.toFixed(2) : "0.00",
+      entry: typeof tradeEntryPrice === "number" ? tradeEntryPrice.toFixed(2) : "0.00",
+      exit: typeof tradeExitPrice === "number" ? tradeExitPrice.toFixed(2) : "0.00",
       returnPercent: (netReturn * 100).toFixed(2),
       rsi: typeof ensemble.rsi === "number" ? ensemble.rsi.toFixed(2) : "--",
       atrPercent: typeof regimeState.metrics?.atrPercent === "number" ? regimeState.metrics.atrPercent.toFixed(3) : "0.000"
@@ -136,11 +135,29 @@ export default async function handler(req, res) {
       throw new Error(`eToro API rejected candle historical stream request (Status: ${candleResponse.status})`);
     }
 
-    const candles = getCandlesFromResponse(await candleResponse.json());
+    const candleResponseData = await candleResponse.json();
+    
+    // Validate API response structure before processing
+    if (!candleResponseData?.candles?.[0]?.candles) {
+      throw new Error(`Invalid API response structure: expected candles[0].candles array but received malformed data from eToro. Please verify API credentials and instrument ID.`);
+    }
+
+    const candles = getCandlesFromResponse(candleResponseData);
     const minimumCandles = 100 + horizonDays;
 
     if (candles.length < minimumCandles) {
-      return res.status(200).json({ success: true, instrumentId, horizonDays, totalSignals: 0, winRate: "0.0%", cumulativeReturn: "0.00%", maxDrawdown: "0.00%", thresholdResults: [], recentTrades: [] });
+      return res.status(200).json({ 
+        success: true, 
+        instrumentId, 
+        horizonDays, 
+        totalSignals: 0, 
+        winRate: "0.0%", 
+        cumulativeReturn: "0.00%", 
+        maxDrawdown: "0.00%", 
+        thresholdResults: [], 
+        recentTrades: [],
+        warning: `Insufficient historical data: ${candles.length} candles received, minimum ${minimumCandles} required for backtesting`
+      });
     }
 
     const warmupCandles = 100; 
@@ -161,7 +178,13 @@ export default async function handler(req, res) {
         drawdownGuardActive: !!result.drawdownGuardActive 
       };
     });
-    const bestThreshold = thresholdResults.filter(r => !r.drawdownGuardActive).sort((a,b)=> parseFloat(b.averageReturn) - parseFloat(a.averageReturn))[0] || thresholdResults.sort((a,b)=> parseFloat(b.maxDrawdown) - parseFloat(a.maxDrawdown))[0];
+    
+    // Find best threshold with safeguard against empty arrays
+    const bestThreshold = thresholdResults
+      .filter(r => !r.drawdownGuardActive)
+      .sort((a, b) => parseFloat(b.averageReturn) - parseFloat(a.averageReturn))[0] 
+      || thresholdResults.sort((a, b) => parseFloat(b.averageReturn) - parseFloat(a.averageReturn))[0] 
+      || { threshold: baseConfidenceThreshold };
 
     // Persist optimized summary back into redis database cache
     await redis.set(`backtest-summary-${instrumentId}`, {
@@ -202,4 +225,3 @@ export default async function handler(req, res) {
     return res.status(500).json({ success: false, error: err.message });
   }
 }
-
