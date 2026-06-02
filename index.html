@@ -1324,7 +1324,22 @@ setValue("exposure",data.exposure);
 setValue("positionAdvice",data.positionAdvice);
 
 log("Analysis completed");
+  
+setValue("newsProvider", data.newsProvider);
+setValue("newsSummary", data.newsSummary);
+setValue("newsBias", data.newsBias);
+setValue("newsConfidence", data.newsConfidence);
 
+const newsTerminal = document.getElementById("newsHeadlines");
+if (newsTerminal) {
+  if (data.recentNews && data.recentNews.length > 0) {
+    newsTerminal.innerText = data.recentNews.map(article => 
+      `- ${article.title}\n  (${new Date(article.publishedAt).toLocaleDateString()})`
+    ).join("\n\n");
+  } else {
+    newsTerminal.innerText = "No recent news headlines found.";
+  }
+}
 }catch(err){
 
 console.error(err);
