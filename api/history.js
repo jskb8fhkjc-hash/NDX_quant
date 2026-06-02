@@ -12,12 +12,12 @@ export default async function handler(req, res){
     const rawHistory = await redis.lrange(`signal-history-${instrumentId}`, 0, 19);
     
     // FIX: Parse raw Redis strings into objects, silently dropping malformed legacy rows
-    const parsedHistory = (rawHistory || []).map(item => {
-      if (typeof item === "string") {
-        try { return JSON.parse(item); } catch(e) { return null; }
-      }
-      return item;
-    }).filter(Boolean);
+  const parsedHistory = (rawHistory || []).map(item => {
+    if (typeof item === "string") {
+      try { return JSON.parse(item); } catch(e) { return null; }
+    }
+    return item;
+  }).filter(Boolean); // <--- This prevents 'null' from reaching the frontend
 
     return res.status(200).json({
       success: true,
