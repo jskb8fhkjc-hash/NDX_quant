@@ -47,17 +47,26 @@ export async function getNewsSentiment(symbol) {
     // Normalize return values to float scores between -1.00 and +1.00
     const calculatedSentiment = Math.max(-1.0, Math.min(1.0, totalScore / (articles.length * 2)));
     
-    // FIX 3: Output 'newsSentiment' exactly to clear out downstream aggregator undefined mismatches
-    return {
-      newsSentiment: calculatedSentiment, 
-      newsCount: articles.length,
-      recentNews: articles.slice(0, 3).map(a => ({ 
-        title: a.title, 
-        url: a.url,
-        publishedAt: a.publishedAt
-      })),
-      source: "NewsAPI"
-    };
+let newsBias = "NEUTRAL";
+if (calculatedSentiment > 0.15) newsBias = "BULLISH";
+if (calculatedSentiment < -0.15) newsBias = "BEARISH";
+
+const newsConfidence = Math.min(100, Math.round(Math.abs(calculatedSentiment) * 100));
+
+return {
+  newsBias,
+  newsConfidence: `${newsConfidence}%`,
+  newsProvider: "NewsAPI",
+  newsSummary: `Analyzed ${articles.length} recent articles`,
+  newsSentiment: calculatedSentiment,
+  newsCount: articles.length,
+  recentNews: articles.slice(0, 3).map(a => ({ 
+    title: a.title, 
+    url: a.url,
+    publishedAt: a.publishedAt
+  })),
+  source: "NewsAPI"
+};
   } catch (err) {
     console.error("News sentiment tracking error caught inside module:", err);
     // Graceful fallback structures ensuring market.js pipeline never fails with 500 crashes
