@@ -54,24 +54,17 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
     
     const regimeState = detectRegime(setupCandles) || { metrics: {} };
     
-    // FIX: Provide simulated/aligned timeframe context to satisfy getEnsembleSignal requirements
-    // This stops the engine from returning 'HOLD' on every iteration due to missing intraday properties
-    const simulatedHourCandles = setupCandles.slice(-24); // Map recent trend history
+    // Provide simulated intraday contexts derived from daily candles to satisfy ensemble
+    const simulatedHourCandles = setupCandles.slice(-24);
     const simulatedFourHourCandles = setupCandles.slice(-48);
 
-    const ensemble = getEnsembleSignal(
-      simulatedHourCandles, 
-      simulatedFourHourCandles, 
-      setupCandles, 
-      regimeState
-    ) || {};
+    const ensemble = getEnsembleSignal(simulatedHourCandles, simulatedFourHourCandles, setupCandles, regimeState) || {};
 
     // Filter using confidence metrics; handle undefined properties safely
     if (!ensemble.signal || ensemble.signal === "HOLD" || (ensemble.confidence || 0) < minConfidenceThreshold) {
       continue;
     }
 
-    // Use candles[i] as entry signal point, and horizon days ahead for exit
     const tradeEntryPrice = candles[i].close;
     const tradeExitPrice = candles[i + horizonDays].close;
 
@@ -116,6 +109,7 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
 
 export default async function handler(req, res) {
   try {
+    // Trim env vars to avoid accidental whitespace causing header validation errors
     const API_KEY = (process.env.ETORO_API_KEY || "").trim();
     const USER_KEY = (process.env.ETORO_USER_KEY || "").trim();
     const instrumentId = req.query.instrumentId || "28";
@@ -123,26 +117,53 @@ export default async function handler(req, res) {
     const spreadPercent = parseFloat(req.query.spreadPercent || "0.05");
 
     if (!API_KEY || !USER_KEY) {
-      throw new Error("Missing eToro credentials in backend environment.");
+      throw new Error("Missing eToro API credentials in backend environment.");
     }
 
+    // Robust candle fetch with cache fallback and validation
+    const candleUrl = `https://public-api.etoro.com/api/v1/market-data/instruments/${instrumentId}/history/candles/desc/OneDay/1000`;
+
     const candleResponse = await fetchWithTimeout(
-      `https://public-api.etoro.com/api/v1/market-data/instruments/${instrumentId}/history/candles/desc/OneDay/1000`,
+      candleUrl,
       { headers: { "x-api-key": API_KEY, "x-user-key": USER_KEY, "x-request-id": uuidv4() } }
     );
 
-    if (!candleResponse.ok) {
-      throw new Error(`eToro API rejected candle historical stream request (Status: ${candleResponse.status})`);
+    let candleJson;
+
+    if (!candleResponse || !candleResponse.ok) {
+      console.error(`eToro Candles API failed: Status=${candleResponse?.status}. Attempting to use cached candles.`);
+      const cached = await redis.get(`cached-candles-${instrumentId}`);
+      if (cached) {
+        try {
+          candleJson = JSON.parse(cached);
+        } catch (e) {
+          console.error('Failed to parse cached candles from Redis:', e.message);
+          throw new Error('Failed to retrieve valid candle data from eToro and cache.');
+        }
+      } else {
+        throw new Error(`eToro Candles API rejected request (Status: ${candleResponse?.status || 'no response'})`);
+      }
+    } else {
+      try {
+        candleJson = await candleResponse.json();
+        if (!candleJson?.candles?.[0]?.candles) {
+          throw new Error('Malformed candle payload from eToro: missing candles[0].candles');
+        }
+        // Cache the raw response for resilience (best-effort)
+        try { await redis.set(`cached-candles-${instrumentId}`, JSON.stringify(candleJson)); } catch (e) { console.warn('Failed to cache candles:', e.message); }
+      } catch (e) {
+        console.error('Failed to parse candle response JSON:', e.message);
+        const cached = await redis.get(`cached-candles-${instrumentId}`);
+        if (cached) {
+          try { candleJson = JSON.parse(cached); }
+          catch (pe) { console.error('Failed to parse cached candles after JSON error:', pe.message); throw new Error('Malformed candle JSON from eToro and cache fallback failed.'); }
+        } else {
+          throw new Error('Malformed candle JSON from eToro and no cache available.');
+        }
+      }
     }
 
-    const candleResponseData = await candleResponse.json();
-    
-    // Validate API response structure before processing
-    if (!candleResponseData?.candles?.[0]?.candles) {
-      throw new Error(`Invalid API response structure: expected candles[0].candles array but received malformed data from eToro. Please verify API credentials and instrument ID.`);
-    }
-
-    const candles = getCandlesFromResponse(candleResponseData);
+    const candles = getCandlesFromResponse(candleJson);
     const minimumCandles = 100 + horizonDays;
 
     if (candles.length < minimumCandles) {
@@ -174,28 +195,14 @@ export default async function handler(req, res) {
         averageReturn: result.averageReturn,
         cumulativeReturn: result.cumulativeReturn,
         maxDrawdown: result.maxDrawdown,
-        // Provide the actual boolean value, not a function
-        drawdownGuardActive: !!result.drawdownGuardActive 
+        drawdownGuardActive: result.drawdownGuardActive
       };
     });
-    
-    // Find best threshold with safeguard against empty arrays
-    const bestThreshold = thresholdResults
-      .filter(r => !r.drawdownGuardActive)
-      .sort((a, b) => parseFloat(b.averageReturn) - parseFloat(a.averageReturn))[0] 
-      || thresholdResults.sort((a, b) => parseFloat(b.averageReturn) - parseFloat(a.averageReturn))[0] 
-      || { threshold: baseConfidenceThreshold };
 
-    // Persist optimized summary back into redis database cache
+    const bestThreshold = thresholdResults.filter(r => !r.drawdownGuardActive).sort((a,b)=> parseFloat(b.averageReturn) - parseFloat(a.averageReturn))[0] || thresholdResults.sort((a,b)=> parseFloat(b.averageReturn) - parseFloat(a.averageReturn))[0];
+
     await redis.set(`backtest-summary-${instrumentId}`, {
-      instrumentId, 
-      horizonDays, 
-      totalSignals: primaryBacktest.totalSignals, 
-      winRate: primaryBacktest.winRate, 
-      cumulativeReturn: primaryBacktest.cumulativeReturn, 
-      maxDrawdown: primaryBacktest.maxDrawdown, 
-      maxDrawdownValue: primaryBacktest.maxDrawdownValue, 
-      updatedAt: new Date().toISOString()
+      instrumentId, horizonDays, totalSignals: primaryBacktest.totalSignals, winRate: primaryBacktest.winRate, cumulativeReturn: primaryBacktest.cumulativeReturn, maxDrawdown: primaryBacktest.maxDrawdown, bestThreshold: bestThreshold?.threshold || baseConfidenceThreshold
     });
 
     return res.status(200).json({
