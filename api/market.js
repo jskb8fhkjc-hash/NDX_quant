@@ -124,8 +124,23 @@ export default async function handler(req, res) {
       rsi: ensemble.rsi || 0,
       newsSentiment: ensemble.newsSentiment || 0,
       newsCount: ensemble.newsCount || 0,
+      newsBias: ensemble.newsBias || "NEUTRAL",
+      newsProvider: ensemble.newsProvider || "Unavailable",
+      newsSummary: ensemble.newsSummary || "",
       economicRiskLevel: ensemble.economicRiskLevel || "LOW",
       scoreBreakdown: ensemble.scores || {}
+    });
+
+    await writeAudit("NEWS", "DECISION RESULT", {
+      symbol,
+      provider: ensemble.newsProvider || "Unavailable",
+      searchKeyword: ensemble.newsSearchKeyword || symbol,
+      bias: ensemble.newsBias || "NEUTRAL",
+      confidence: ensemble.newsConfidence || "0%",
+      sentiment: ensemble.newsSentiment || 0,
+      articleCount: ensemble.newsCount || 0,
+      providerError: ensemble.newsProviderError || null,
+      headlines: (ensemble.recentNews || []).map(article => article.title).slice(0, 5)
     });
     
     const positionState = (await redis.get(`position-state-${instrumentId}`)) || {};
@@ -217,8 +232,15 @@ export default async function handler(req, res) {
       entryPrice,
       leverage,
       amountInvested,
+      newsBias: ensemble.newsBias || "NEUTRAL",
+      newsConfidence: ensemble.newsConfidence || "0%",
+      newsProvider: ensemble.newsProvider || "Unavailable",
+      newsSummary: ensemble.newsSummary || "News check unavailable",
       newsSentiment: typeof ensemble.newsSentiment === "number" ? ensemble.newsSentiment.toFixed(2) : "0.00",
       newsCount: ensemble.newsCount || 0,
+      recentNews: ensemble.recentNews || [],
+      newsSearchKeyword: ensemble.newsSearchKeyword || symbol,
+      newsProviderError: ensemble.newsProviderError || null,
       economicRiskLevel: ensemble.economicRiskLevel || "LOW",
       hasUpcomingEconomicEvent: !!ensemble.hasUpcomingEvent,
       upcomingEconomicEvents: ensemble.upcomingEvents || [],

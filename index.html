@@ -1162,6 +1162,11 @@ encodeURIComponent(
 document.getElementById("instrumentInput").value
 );
 
+const symbol =
+encodeURIComponent(
+document.getElementById("instrumentSymbolInput").value || ""
+);
+
 const holding =
 encodeURIComponent(
 document.getElementById("holding").value
@@ -1194,7 +1199,7 @@ document.getElementById("amountInvested").value || 1000
 
 const url =
 
-`/api/market?instrumentId=${instrumentId}&holding=${holding}&leverage=${leverage}&entryPrice=${entryPrice}&existingSL=${existingSL}&existingTP=${existingTP}&amountInvested=${amountInvested}&updatePosition=${updatePosition}&loadSavedPosition=${loadSavedPosition}`;
+`/api/market?instrumentId=${instrumentId}&symbol=${symbol}&holding=${holding}&leverage=${leverage}&entryPrice=${entryPrice}&existingSL=${existingSL}&existingTP=${existingTP}&amountInvested=${amountInvested}&updatePosition=${updatePosition}&loadSavedPosition=${loadSavedPosition}`;
 
 const response =
 await fetch(url);
@@ -1344,10 +1349,12 @@ const newsTerminal = document.getElementById("newsHeadlines");
 if (newsTerminal) {
   if (data.recentNews && data.recentNews.length > 0) {
     newsTerminal.innerText = data.recentNews.map(article => 
-      `- ${article.title}\n  (${new Date(article.publishedAt).toLocaleDateString()})`
+      `- ${article.title}\n  Source: ${article.source || "--"} | Score: ${article.score ?? 0}\n  Date: ${article.publishedAt ? new Date(article.publishedAt).toLocaleDateString() : "--"}\n  ${article.url || ""}`
     ).join("\n\n");
   } else {
-    newsTerminal.innerText = "No recent news headlines found.";
+    newsTerminal.innerText = data.newsProviderError
+    ? `No recent news headlines found. Provider note: ${data.newsProviderError}`
+    : "No recent news headlines found.";
   }
 }
 }catch(err){

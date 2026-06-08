@@ -28,7 +28,15 @@ export async function getEnsembleSignal(oneHour, fourHour, daily, regime, instru
 
   // Fetch news sentiment safely using unified mapping variables
   let newsScore = 0;
-  let newsResult = { newsSentiment: 0.0, newsCount: 0, recentNews: [] };
+  let newsResult = {
+    newsBias:"NEUTRAL",
+    newsConfidence:"0%",
+    newsProvider:"Unavailable",
+    newsSummary:"News not checked",
+    newsSentiment:0.0,
+    newsCount:0,
+    recentNews:[]
+  };
   try {
     newsResult = await getNewsSentiment(symbol);
     // FIX 1: Weight the -1.0 to +1.0 normalized value accurately into a 15-point score matrix
@@ -79,8 +87,15 @@ export async function getEnsembleSignal(oneHour, fourHour, daily, regime, instru
     signal, 
     confidence: Math.round(Math.min(confidence, 100)),
     rsi,
+    newsBias: newsResult.newsBias || "NEUTRAL",
+    newsConfidence: newsResult.newsConfidence || "0%",
+    newsProvider: newsResult.newsProvider || newsResult.source || "Unavailable",
+    newsSummary: newsResult.newsSummary || "News check completed",
     newsSentiment: typeof newsResult.newsSentiment === "number" ? newsResult.newsSentiment : 0.0,
     newsCount: newsResult.newsCount || 0,
+    recentNews: newsResult.recentNews || [],
+    newsSearchKeyword: newsResult.searchKeyword || symbol || "",
+    newsProviderError: newsResult.providerError || newsResult.error || null,
     economicRiskLevel: economicData.riskLevel || "LOW",
     hasUpcomingEvent: !!economicData.hasHighImpactEvent,
     shouldReduceExposure: typeof shouldReduceExposure === "function" ? shouldReduceExposure(economicData) : false,
