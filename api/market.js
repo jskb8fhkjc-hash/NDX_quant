@@ -12,6 +12,23 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN
 });
 
+async function writeAudit(scope, event, details = {}) {
+  const cleanDetails = Object.fromEntries(
+    Object.entries(details).map(([key, value]) => [
+      key,
+      typeof value === "number" && Number.isFinite(value)
+        ? Number(value.toFixed(6))
+        : value
+    ])
+  );
+
+  const line =
+    `${new Date().toISOString()} | ${scope} | ${event} | ${JSON.stringify(cleanDetails)}`;
+
+  await redis.lpush("system-audit-logs", line);
+  await redis.ltrim("system-audit-logs", 0, 199);
+}
+
 function getCandlesFromResponse(candleData) {
   if (!candleData?.candles?.[0]?.candles) return [];
   return candleData.candles[0].candles.sort((a,b) => new Date(a.fromDate) - new Date(b.fromDate));
@@ -32,6 +49,13 @@ export default async function handler(req, res) {
       throw new Error("Missing eToro API credentials in environment configuration.");
     }
 
+    await writeAudit("MARKET", "REQUEST START", {
+      instrumentId,
+      symbol,
+      holding: req.query.holding || "from-saved-position",
+      amountInvested: req.query.amountInvested || "from-saved-position"
+    });
+
     // Only supply instrumentId parameter inside the active eToro execution array URLs
     const headers = { "x-api-key": API_KEY, "x-user-key": USER_KEY, "x-request-id": uuidv4() };
     const [liveRes, hourRes, fourHourRes, dayRes] = await Promise.all([
@@ -40,6 +64,13 @@ export default async function handler(req, res) {
       fetch(`${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/FourHours/200`, { headers }),
       fetch(`${BASE_URL}/market-data/instruments/${instrumentId}/history/candles/desc/OneDay/200`, { headers })
     ]);
+
+    await writeAudit("MARKET", "ETORO FETCH RESULT", {
+      ratesStatus: liveRes.status,
+      oneHourStatus: hourRes.status,
+      fourHourStatus: fourHourRes.status,
+      oneDayStatus: dayRes.status
+    });
 
     if (!liveRes.ok) throw new Error(`eToro Rates API rejected request (Status: ${liveRes.status})`);
     if (!dayRes.ok) throw new Error(`eToro Candles API rejected request (Status: ${dayRes.status})`);
@@ -56,8 +87,46 @@ export default async function handler(req, res) {
     const fourHour = getCandlesFromResponse(await fourHourRes.json());
     const daily = getCandlesFromResponse(await dayRes.json());
 
+    await writeAudit("MARKET", "MARKET DATA PARSED", {
+      price: currentPrice,
+      ask,
+      bid,
+      spreadPercent,
+      oneHourCandles: oneHour.length,
+      fourHourCandles: fourHour.length,
+      dailyCandles: daily.length,
+      firstDailyCandle: daily[0]?.fromDate || null,
+      lastDailyCandle: daily[daily.length - 1]?.fromDate || null
+    });
+
     const regimeState = detectRegime(daily) || { metrics: {}, volatility: "NORMAL", direction: "MIXED", regime: "UNKNOWN", trendStrengthPercent: 0, tradable: true };
+
+    await writeAudit("TECHNICAL", "REGIME ANALYSIS", {
+      regime: regimeState.regime,
+      direction: regimeState.direction,
+      volatility: regimeState.volatility,
+      tradable: regimeState.tradable,
+      trendStrengthPercent: regimeState.trendStrengthPercent || 0,
+      ema20: regimeState.metrics?.ema20 || 0,
+      ema50: regimeState.metrics?.ema50 || 0,
+      ema100: regimeState.metrics?.ema100 || 0,
+      atr: regimeState.metrics?.atr || 0,
+      atrPercent: regimeState.metrics?.atrPercent || 0,
+      adx: regimeState.metrics?.adx || 0
+    });
+
     const ensemble = await getEnsembleSignal(oneHour, fourHour, daily, regimeState, instrumentId, symbol);
+
+    await writeAudit("SIGNAL", "ENSEMBLE RESULT", {
+      signal: ensemble.signal || "HOLD",
+      confidence: ensemble.confidence || 0,
+      finalScore: ensemble.finalScore || 0,
+      rsi: ensemble.rsi || 0,
+      newsSentiment: ensemble.newsSentiment || 0,
+      newsCount: ensemble.newsCount || 0,
+      economicRiskLevel: ensemble.economicRiskLevel || "LOW",
+      scoreBreakdown: ensemble.scores || {}
+    });
     
     const positionState = (await redis.get(`position-state-${instrumentId}`)) || {};
     const backtestSummary = (await redis.get(`backtest-summary-${instrumentId}`)) || {};
@@ -69,6 +138,18 @@ export default async function handler(req, res) {
     const riskSizing = calculateRiskSizing({
       amountInvested, leverage, currentPrice, atr: regimeState.metrics?.atr || 0, volatility: regimeState.volatility
     }) || { riskPercent: 0, riskCapital: 0, recommendedInvestment: 0, recommendedPositionValue: 0, recommendedUnits: 0, stopDistancePercent: 0 };
+
+    await writeAudit("RISK", "RISK SIZING", {
+      amountInvested,
+      leverage,
+      riskPercent: riskSizing.riskPercent || 0,
+      riskCapital: riskSizing.riskCapital || 0,
+      recommendedInvestment: riskSizing.recommendedInvestment || 0,
+      recommendedPositionValue: riskSizing.recommendedPositionValue || 0,
+      recommendedUnits: riskSizing.recommendedUnits || 0,
+      stopDistancePercent: riskSizing.stopDistancePercent || 0,
+      backtestMaxDrawdown: backtestSummary?.maxDrawdown || "none"
+    });
 
     const atrValue = regimeState.metrics?.atr || 0;
     const stopLoss = ensemble.signal === "SELL" ? currentPrice + (atrValue * 1.5) : currentPrice - (atrValue * 1.5);
@@ -163,10 +244,26 @@ export default async function handler(req, res) {
     
     // FIX 3: Sanitized string template ensuring missing symbols never throw execution crashes
     await redis.lpush("system-audit-logs", `${new Date().toISOString()} | UI SYNC | ${symbol} (ID:${instrumentId}) | Signal: ${ensemble.signal || "HOLD"} | Confidence: ${ensemble.confidence || 0}% | News Sentiment: ${typeof ensemble.newsSentiment === "number" ? ensemble.newsSentiment.toFixed(2) : "0.00"} | Economic Risk: ${ensemble.economicRiskLevel || "LOW"}`);
+    await redis.ltrim("system-audit-logs", 0, 199);
+    await writeAudit("MARKET", "RESPONSE READY", {
+      signal: outputPayload.signal,
+      confidence: outputPayload.confidence,
+      signalQuality: outputPayload.signalQuality,
+      positionAdvice: outputPayload.positionAdvice,
+      exposure: outputPayload.exposure,
+      pnl: outputPayload.pnl
+    });
     
     return res.status(200).json(outputPayload);
   } catch (err) {
     console.error("Market API error:", err);
+    try {
+      await writeAudit("MARKET", "ERROR", {
+        instrumentId,
+        symbol,
+        error: err.message
+      });
+    } catch(e) {}
     return res.status(500).json({ success: false, error: err.message });
   }
 }

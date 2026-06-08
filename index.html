@@ -1621,7 +1621,11 @@ logsResult.logs.map(entry => {
 
 if(typeof entry !== "string"){
 
-return "Invalid log entry";
+try{
+return JSON.stringify(entry);
+}catch(e){
+return String(entry);
+}
 
 }
 

@@ -23,7 +23,17 @@ export default async function handler(req, res){
 
     return res.status(200).json({
       success:true,
-      logs: logs || []
+      logs: (logs || []).map(log => {
+        if(typeof log === "string"){
+          return log;
+        }
+
+        try{
+          return JSON.stringify(log);
+        }catch(e){
+          return String(log);
+        }
+      })
     });
 
   }catch(err){
