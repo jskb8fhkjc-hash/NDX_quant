@@ -677,6 +677,33 @@ Backtest Funnel:
 <span id="backtestDiagnostics">--</span>
 </div>
 
+<div class="metric">
+Walk-Forward Win Rate:
+<span id="walkForwardWinRate">--</span>
+</div>
+
+<div class="metric">
+Walk-Forward Return:
+<span id="walkForwardReturn">--</span>
+</div>
+
+<div class="metric">
+Walk-Forward Drawdown:
+<span id="walkForwardDrawdown">--</span>
+</div>
+
+<div class="metric">
+Walk-Forward Segments:
+<span id="walkForwardSegments">--</span>
+</div>
+
+<pre
+id="walkForwardSummary"
+class="auditTerminal"
+>
+Loading walk-forward...
+</pre>
+
 <pre
 id="backtestTrades"
 class="auditTerminal"
@@ -1424,6 +1451,10 @@ setValue("backtestMaxDrawdown",result.maxDrawdown);
 setValue("backtestBestThreshold",result.bestThreshold);
 setValue("backtestDrawdownGuard",result.drawdownGuard);
 setValue("backtestDataWarning",result.dataWarning || "OK");
+setValue("walkForwardWinRate", result.walkForward?.winRate || "--");
+setValue("walkForwardReturn", result.walkForward?.cumulativeReturn || "--");
+setValue("walkForwardDrawdown", result.walkForward?.maxDrawdown || "--");
+setValue("walkForwardSegments", result.walkForward?.segments?.length ?? 0);
 
 const marketData =
 result.marketDataStatus || {};
@@ -1480,6 +1511,30 @@ thresholdsDisplay.innerHTML =
 
 }
 
+const walkForwardSummary =
+document.getElementById("walkForwardSummary");
+
+if(walkForwardSummary){
+
+if(result.walkForward?.segments?.length > 0){
+
+walkForwardSummary.innerHTML =
+result.walkForward.segments.map(segment => {
+
+return `TrainEnd ${segment.trainEndIndex} | Test ${segment.testStartIndex}-${segment.testEndIndex} | Threshold ${segment.chosenThreshold} | Signals ${segment.signals} | Win ${segment.winRate} | Return ${segment.cumulativeReturn}`;
+
+}).join("\n");
+
+}else{
+
+walkForwardSummary.innerHTML =
+result.walkForward?.dataWarning
+|| "No walk-forward segments available.";
+
+}
+
+}
+
 }catch(err){
 
 console.error(err);
@@ -1494,6 +1549,10 @@ setValue("backtestDrawdownGuard","--");
 setValue("backtestDataWarning","--");
 setValue("backtestMarketData","--");
 setValue("backtestDiagnostics","--");
+setValue("walkForwardWinRate","--");
+setValue("walkForwardReturn","--");
+setValue("walkForwardDrawdown","--");
+setValue("walkForwardSegments","--");
 
 tradesDisplay.innerHTML =
 `Backtest error: ${err.message}`;
@@ -1501,6 +1560,14 @@ tradesDisplay.innerHTML =
 if(thresholdsDisplay){
 thresholdsDisplay.innerHTML =
 `Threshold test error: ${err.message}`;
+}
+
+const walkForwardSummary =
+document.getElementById("walkForwardSummary");
+
+if(walkForwardSummary){
+walkForwardSummary.innerHTML =
+`Walk-forward error: ${err.message}`;
 }
 
 }

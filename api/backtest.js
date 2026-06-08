@@ -29,6 +29,9 @@ async function writeAudit(scope, event, details = {}) {
 
 const SCORE_THRESHOLDS = [55, 60, 65, 70];
 const MAX_ACCEPTABLE_DRAWDOWN = -25.0;
+const WALK_FORWARD_TRAIN_WINDOW = 120;
+const WALK_FORWARD_TEST_WINDOW = 20;
+const WALK_FORWARD_STEP = 20;
 
 async function fetchWithTimeout(url, options = {}, timeout = 15000) {
   const controller = new AbortController();
@@ -248,6 +251,207 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
   };
 }
 
+function runWalkForwardBacktest({
+  candles,
+  horizonDays,
+  spreadPercent
+}) {
+  const segments = [];
+  const allTrades = [];
+  const equityCurve = [0];
+  let cumulativeReturn = 0;
+
+  const minimumRequired =
+    WALK_FORWARD_TRAIN_WINDOW +
+    horizonDays +
+    WALK_FORWARD_TEST_WINDOW;
+
+  if(candles.length < minimumRequired){
+    return {
+      segments: [],
+      trades: [],
+      totalSignals: 0,
+      wins: 0,
+      losses: 0,
+      winRate: "0.0%",
+      averageReturn: "0.00%",
+      cumulativeReturn: "0.00%",
+      maxDrawdown: "0.00%",
+      maxDrawdownValue: 0,
+      chosenThresholds: [],
+      dataWarning: `Walk-forward needs at least ${minimumRequired} candles; received ${candles.length}.`
+    };
+  }
+
+  for(
+    let trainEnd = WALK_FORWARD_TRAIN_WINDOW;
+    trainEnd < candles.length - horizonDays;
+    trainEnd += WALK_FORWARD_STEP
+  ){
+    const trainCandles =
+      candles.slice(0, trainEnd);
+
+    const testStart =
+      trainEnd;
+
+    const testEnd =
+      Math.min(
+        candles.length - horizonDays,
+        testStart + WALK_FORWARD_TEST_WINDOW
+      );
+
+    if(testEnd <= testStart){
+      break;
+    }
+
+    const thresholdResults =
+      SCORE_THRESHOLDS.map(threshold => {
+        const result =
+          runBacktest({
+            candles: trainCandles,
+            horizonDays,
+            spreadPercent,
+            minConfidenceThreshold: threshold,
+            warmupCandles: Math.min(
+              100,
+              Math.max(20, trainCandles.length - 20)
+            )
+          });
+
+        return {
+          threshold,
+          totalSignals: result.totalSignals,
+          winRate: result.winRate,
+          averageReturn: result.averageReturn,
+          cumulativeReturn: result.cumulativeReturn,
+          maxDrawdown: result.maxDrawdown,
+          drawdownGuardActive: result.drawdownGuardActive,
+          rawAverageReturn:
+            result.totalSignals
+              ? parseFloat(result.averageReturn)
+              : -999
+        };
+      });
+
+    const chosen =
+      thresholdResults
+        .filter(item => !item.drawdownGuardActive && item.totalSignals > 0)
+        .sort((a,b) => b.rawAverageReturn - a.rawAverageReturn)[0] ||
+      thresholdResults
+        .filter(item => item.totalSignals > 0)
+        .sort((a,b) => b.rawAverageReturn - a.rawAverageReturn)[0] ||
+      thresholdResults[0];
+
+    const chosenThreshold =
+      chosen?.threshold ?? SCORE_THRESHOLDS[0];
+
+    const segmentTrades = [];
+
+    for(
+      let i = testStart;
+      i < testEnd;
+      i++
+    ){
+      const setupCandles =
+        candles.slice(0, i + 1);
+
+      const regimeState =
+        detectRegime(setupCandles) || { metrics: {} };
+
+      const ensemble =
+        getHistoricalSignal(
+          setupCandles,
+          regimeState
+        );
+
+      if(!ensemble.signal || ensemble.signal === "HOLD"){
+        continue;
+      }
+
+      if((ensemble.confidence || 0) < chosenThreshold){
+        continue;
+      }
+
+      const tradeEntryPrice =
+        candles[i].close;
+
+      const tradeExitPrice =
+        candles[i + horizonDays].close;
+
+      const grossReturn =
+        ensemble.signal === "BUY"
+        ? (tradeExitPrice - tradeEntryPrice) / tradeEntryPrice
+        : (tradeEntryPrice - tradeExitPrice) / tradeEntryPrice;
+
+      const netReturn =
+        grossReturn - (spreadPercent / 100);
+
+      cumulativeReturn += netReturn;
+      equityCurve.push(cumulativeReturn);
+
+      const trade = {
+        date: candles[i].fromDate,
+        signal: ensemble.signal,
+        score: ensemble.confidence || 0,
+        entry: tradeEntryPrice.toFixed(2),
+        exit: tradeExitPrice.toFixed(2),
+        returnPercent: (netReturn * 100).toFixed(2),
+        rsi: typeof ensemble.rsi === "number" ? ensemble.rsi.toFixed(2) : "--",
+        thresholdUsed: chosenThreshold
+      };
+
+      segmentTrades.push(trade);
+      allTrades.push(trade);
+    }
+
+    segments.push({
+      trainEndIndex: trainEnd,
+      testStartIndex: testStart,
+      testEndIndex: testEnd,
+      chosenThreshold,
+      thresholdResults,
+      signals: segmentTrades.length,
+      winRate: segmentTrades.length
+        ? (
+          (segmentTrades.filter(t => parseFloat(t.returnPercent) > 0).length /
+          segmentTrades.length) * 100
+        ).toFixed(1) + "%"
+        : "0.0%",
+      cumulativeReturn:
+        (segmentTrades.reduce((sum, t) => sum + parseFloat(t.returnPercent), 0)).toFixed(2) + "%"
+    });
+  }
+
+  const wins =
+    allTrades.filter(t => parseFloat(t.returnPercent) > 0).length;
+
+  const maxDrawdownValue =
+    getMaxDrawdown(equityCurve) * 100;
+
+  const averageReturn =
+    allTrades.length
+      ? (allTrades
+          .map(t => parseFloat(t.returnPercent))
+          .reduce((a,b) => a + b, 0) / allTrades.length).toFixed(2) + "%"
+      : "0.00%";
+
+  return {
+    segments,
+    trades: allTrades,
+    totalSignals: allTrades.length,
+    wins,
+    losses: allTrades.length - wins,
+    winRate: allTrades.length
+      ? ((wins / allTrades.length) * 100).toFixed(1) + "%"
+      : "0.0%",
+    averageReturn,
+    cumulativeReturn: (cumulativeReturn * 100).toFixed(2) + "%",
+    maxDrawdown: maxDrawdownValue.toFixed(2) + "%",
+    maxDrawdownValue,
+    chosenThresholds: segments.map(segment => segment.chosenThreshold)
+  };
+}
+
 export default async function handler(req, res) {
   try {
     // Trim env vars to avoid accidental whitespace causing header validation errors
@@ -387,6 +591,12 @@ export default async function handler(req, res) {
     });
 
     const primaryBacktest = runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThreshold: baseConfidenceThreshold, warmupCandles });
+    const walkForwardBacktest =
+      runWalkForwardBacktest({
+        candles,
+        horizonDays,
+        spreadPercent
+      });
 
     await writeAudit("BACKTEST", "PRIMARY RESULT", {
       totalSignals: primaryBacktest.totalSignals,
@@ -397,6 +607,16 @@ export default async function handler(req, res) {
       cumulativeReturn: primaryBacktest.cumulativeReturn,
       maxDrawdown: primaryBacktest.maxDrawdown,
       diagnostics: primaryBacktest.diagnostics
+    });
+
+    await writeAudit("BACKTEST", "WALK FORWARD RESULT", {
+      totalSignals: walkForwardBacktest.totalSignals,
+      winRate: walkForwardBacktest.winRate,
+      averageReturn: walkForwardBacktest.averageReturn,
+      cumulativeReturn: walkForwardBacktest.cumulativeReturn,
+      maxDrawdown: walkForwardBacktest.maxDrawdown,
+      segments: walkForwardBacktest.segments.length,
+      chosenThresholds: walkForwardBacktest.chosenThresholds
     });
 
     const thresholdResults = SCORE_THRESHOLDS.map(threshold => {
@@ -420,6 +640,17 @@ export default async function handler(req, res) {
 
     await redis.set(`backtest-summary-${instrumentId}`, {
       instrumentId, horizonDays, totalSignals: primaryBacktest.totalSignals, winRate: primaryBacktest.winRate, cumulativeReturn: primaryBacktest.cumulativeReturn, maxDrawdown: primaryBacktest.maxDrawdown, bestThreshold: bestThreshold?.threshold || baseConfidenceThreshold
+    });
+
+    await redis.set(`walk-forward-summary-${instrumentId}`, {
+      instrumentId,
+      horizonDays,
+      totalSignals: walkForwardBacktest.totalSignals,
+      winRate: walkForwardBacktest.winRate,
+      cumulativeReturn: walkForwardBacktest.cumulativeReturn,
+      maxDrawdown: walkForwardBacktest.maxDrawdown,
+      chosenThresholds: walkForwardBacktest.chosenThresholds,
+      updatedAt: new Date().toISOString()
     });
 
     await writeAudit("BACKTEST", "SUMMARY STORED", {
@@ -450,6 +681,7 @@ export default async function handler(req, res) {
       bestThreshold: bestThreshold?.threshold || baseConfidenceThreshold,
       thresholdResults,
       diagnostics: primaryBacktest.diagnostics,
+      walkForward: walkForwardBacktest,
       recentTrades: primaryBacktest.trades.slice(-10).reverse()
     });
 
