@@ -667,6 +667,16 @@ Data Note:
 <span id="backtestDataWarning">--</span>
 </div>
 
+<div class="metric">
+Market Data:
+<span id="backtestMarketData">--</span>
+</div>
+
+<div class="metric">
+Backtest Funnel:
+<span id="backtestDiagnostics">--</span>
+</div>
+
 <pre
 id="backtestTrades"
 class="auditTerminal"
@@ -1408,6 +1418,22 @@ setValue("backtestBestThreshold",result.bestThreshold);
 setValue("backtestDrawdownGuard",result.drawdownGuard);
 setValue("backtestDataWarning",result.dataWarning || "OK");
 
+const marketData =
+result.marketDataStatus || {};
+
+setValue(
+"backtestMarketData",
+`${marketData.candlesReceived ?? "--"} candles | ${marketData.firstCandleDate || "--"} to ${marketData.lastCandleDate || "--"}`
+);
+
+const diagnostics =
+result.diagnostics || {};
+
+setValue(
+"backtestDiagnostics",
+`Evaluated ${diagnostics.evaluatedSetups ?? 0}, HOLD ${diagnostics.holdSetups ?? 0}, low confidence ${diagnostics.lowConfidenceSetups ?? 0}, BUY candidates ${diagnostics.buyCandidates ?? 0}, SELL candidates ${diagnostics.sellCandidates ?? 0}`
+);
+
 if(
 Array.isArray(result.recentTrades) &&
 result.recentTrades.length > 0
@@ -1459,6 +1485,8 @@ setValue("backtestMaxDrawdown","--");
 setValue("backtestBestThreshold","--");
 setValue("backtestDrawdownGuard","--");
 setValue("backtestDataWarning","--");
+setValue("backtestMarketData","--");
+setValue("backtestDiagnostics","--");
 
 tradesDisplay.innerHTML =
 `Backtest error: ${err.message}`;

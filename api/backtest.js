@@ -1,6 +1,5 @@
 import { Redis } from "@upstash/redis";
 import { detectRegime } from "../core/regime.js";
-import { getEnsembleSignal } from "../core/strategy/aggregator.js";
 
 function uuidv4() { 
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => (c === "x" ? Math.random() * 16 | 0 : (Math.random() * 16 | 0 & 0x3 | 0x8)).toString(16)); 
@@ -44,9 +43,118 @@ function getMaxDrawdown(equityCurve) {
   return maxDrawdown;
 }
 
+function getHistoricalSignal(daily, regimeState) {
+  const closes =
+    daily.map(c => parseFloat(c.close));
+
+  const currentPrice =
+    closes[closes.length - 1];
+
+  const ema20 =
+    closes.slice(-20).reduce((sum, value) => sum + value, 0) /
+    Math.min(20, closes.length);
+
+  const previousPrice =
+    closes[closes.length - 6] || closes[0];
+
+  const momentumScore =
+    currentPrice > ema20 && currentPrice > previousPrice
+    ? 100
+    : currentPrice < ema20 && currentPrice < previousPrice
+    ? -100
+    : 0;
+
+  const rsi =
+    getRsi(closes);
+
+  const reversionScore =
+    rsi < 30
+    ? 100
+    : rsi > 70
+    ? -100
+    : 0;
+
+  const finalScore =
+    regimeState.direction === "SIDEWAYS"
+    ? (momentumScore * 0.25) + (reversionScore * 0.6)
+    : (momentumScore * 0.65) + (reversionScore * 0.2);
+
+  const confidence =
+    Math.round(
+      Math.min(
+        100,
+        50 + Math.abs(finalScore) / 2
+      )
+    );
+
+  const marketIsTradable =
+    regimeState.tradable !== false;
+
+  let signal = "HOLD";
+
+  if(
+    finalScore >= 30 &&
+    marketIsTradable &&
+    confidence >= 55
+  ){
+    signal = "BUY";
+  }
+
+  if(
+    finalScore <= -30 &&
+    marketIsTradable &&
+    confidence >= 55
+  ){
+    signal = "SELL";
+  }
+
+  return {
+    signal,
+    confidence,
+    rsi,
+    finalScore
+  };
+}
+
+function getRsi(closes, period = 14) {
+  if (closes.length < period + 1) {
+    return 50;
+  }
+
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const diff =
+      closes[i] - closes[i - 1];
+
+    if (diff >= 0) {
+      gains += diff;
+    } else {
+      losses += Math.abs(diff);
+    }
+  }
+
+  if (losses === 0) {
+    return 100;
+  }
+
+  const rs =
+    gains / losses;
+
+  return 100 - (100 / (1 + rs));
+}
+
 function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThreshold, warmupCandles }) {
   const trades = [];
   const equityCurve = [0];
+  const diagnostics = {
+    evaluatedSetups: 0,
+    holdSetups: 0,
+    lowConfidenceSetups: 0,
+    buyCandidates: 0,
+    sellCandidates: 0
+  };
   let cumulativeReturn = 0;
 
   for (let i = warmupCandles; i < candles.length - horizonDays; i++) {
@@ -54,14 +162,29 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
     
     const regimeState = detectRegime(setupCandles) || { metrics: {} };
     
-    // Provide simulated intraday contexts derived from daily candles to satisfy ensemble
-    const simulatedHourCandles = setupCandles.slice(-24);
-    const simulatedFourHourCandles = setupCandles.slice(-48);
+    const ensemble =
+      getHistoricalSignal(
+        setupCandles,
+        regimeState
+      );
 
-    const ensemble = getEnsembleSignal(simulatedHourCandles, simulatedFourHourCandles, setupCandles, regimeState) || {};
+    diagnostics.evaluatedSetups += 1;
 
-    // Filter using confidence metrics; handle undefined properties safely
-    if (!ensemble.signal || ensemble.signal === "HOLD" || (ensemble.confidence || 0) < minConfidenceThreshold) {
+    if(ensemble.signal === "BUY"){
+      diagnostics.buyCandidates += 1;
+    }
+
+    if(ensemble.signal === "SELL"){
+      diagnostics.sellCandidates += 1;
+    }
+
+    if (!ensemble.signal || ensemble.signal === "HOLD") {
+      diagnostics.holdSetups += 1;
+      continue;
+    }
+
+    if((ensemble.confidence || 0) < minConfidenceThreshold) {
+      diagnostics.lowConfidenceSetups += 1;
       continue;
     }
 
@@ -93,6 +216,7 @@ function runBacktest({ candles, horizonDays, spreadPercent, minConfidenceThresho
 
   return {
     trades,
+    diagnostics,
     totalSignals: trades.length,
     buySignals: trades.filter(t => t.signal === "BUY").length,
     sellSignals: trades.filter(t => t.signal === "SELL").length,
@@ -165,19 +289,44 @@ export default async function handler(req, res) {
 
     const candles = getCandlesFromResponse(candleJson);
     const minimumCandles = 100 + horizonDays;
+    const marketDataStatus = {
+      candlesReceived: candles.length,
+      firstCandleDate: candles[0]?.fromDate || null,
+      lastCandleDate: candles[candles.length - 1]?.fromDate || null,
+      firstClose: candles[0]?.close ?? null,
+      lastClose: candles[candles.length - 1]?.close ?? null
+    };
 
     if (candles.length < minimumCandles) {
       return res.status(200).json({ 
         success: true, 
         instrumentId, 
         horizonDays, 
+        candlesTested: candles.length,
+        marketDataStatus,
+        warmupCandles: 0,
+        minSignalScore: 0,
         totalSignals: 0, 
+        buySignals: 0,
+        sellSignals: 0,
+        wins: 0,
+        losses: 0,
         winRate: "0.0%", 
+        averageReturn: "0.00%",
         cumulativeReturn: "0.00%", 
         maxDrawdown: "0.00%", 
+        drawdownGuard: "OK",
+        bestThreshold: "--",
         thresholdResults: [], 
+        diagnostics: {
+          evaluatedSetups: 0,
+          holdSetups: 0,
+          lowConfidenceSetups: 0,
+          buyCandidates: 0,
+          sellCandidates: 0
+        },
         recentTrades: [],
-        warning: `Insufficient historical data: ${candles.length} candles received, minimum ${minimumCandles} required for backtesting`
+        dataWarning: `Insufficient historical data: ${candles.length} candles received, minimum ${minimumCandles} required for backtesting`
       });
     }
 
@@ -210,6 +359,7 @@ export default async function handler(req, res) {
       instrumentId,
       horizonDays,
       candlesTested: candles.length,
+      marketDataStatus,
       warmupCandles,
       minSignalScore: baseConfidenceThreshold,
       totalSignals: primaryBacktest.totalSignals,
@@ -224,6 +374,7 @@ export default async function handler(req, res) {
       drawdownGuard: primaryBacktest.drawdownGuardActive ? "ACTIVE" : "OK",
       bestThreshold: bestThreshold?.threshold || baseConfidenceThreshold,
       thresholdResults,
+      diagnostics: primaryBacktest.diagnostics,
       recentTrades: primaryBacktest.trades.slice(-10).reverse()
     });
 
